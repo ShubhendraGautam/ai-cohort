@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: ai-cohort
+    runtime: docker
+    repo: https://github.com/ShubhendraGautam/ai-cohort
+    branch: main
+    region: singapore
+    plan: 0.5c-512mb
+    healthCheckPath: /healthz
+    maxShutdownDelaySeconds: 30
+    disk:
+      name: cohort-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_PATH
+        value: /var/data/cohort.db
+      - key: DIRECT_MESSAGE_RETENTION_DAYS
+        value: "30"
+      - key: SEED_DEMO
+        value: "true"
+      - key: ADMIN_NAME
+        value: AI Cohort Admin
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

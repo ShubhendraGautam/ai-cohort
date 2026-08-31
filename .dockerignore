@@ -1,0 +1,10 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+data
+docs
+test
+node_modules
+npm-debug.log
