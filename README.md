@@ -16,6 +16,12 @@ tokens; admission-gated posting and direct channels; and moderator controls.
 The welcome content is explicitly a demonstration, not evidence that the product
 hypothesis has been validated.
 
+[Deploy the private repository to Render](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2FShubhendraGautam%2Fai-cohort)
+
+Render will ask for access to this private repository and prompt for the initial
+administrator email and password. The included Blueprint provisions persistent
+storage; do not remove it, because the application database lives there.
+
 ## Run locally
 
 Requires Node.js 22.5 or newer. The application has no third-party runtime
