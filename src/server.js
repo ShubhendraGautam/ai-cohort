@@ -1,31 +1,31 @@
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { createApp } from "./app.js";
+import { createCoordinator } from "./coordination.js";
 import { openDatabase, seedAdmin, seedDemo } from "./db.js";
 
-const databasePath = process.env.DATABASE_PATH || "data/cohort.db";
-if (databasePath !== ":memory:") mkdirSync(dirname(databasePath), { recursive: true });
+if (process.env.NODE_ENV === "production" && !process.env.APP_ENCRYPTION_KEY) {
+  throw new Error("APP_ENCRYPTION_KEY is required in production");
+}
 
-const db = openDatabase(databasePath);
-const adminId = seedAdmin(db, {
+const db = await openDatabase();
+const coordinator = await createCoordinator();
+const adminId = await seedAdmin(db, {
   email: process.env.ADMIN_EMAIL,
   password: process.env.ADMIN_PASSWORD,
   name: process.env.ADMIN_NAME,
 });
-if (process.env.SEED_DEMO === "true") seedDemo(db, adminId);
+if (process.env.SEED_DEMO === "true") await seedDemo(db, adminId);
 
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
-const server = createApp({ db });
+const server = createApp({ db, coordinator });
 
 server.listen(port, host, () => {
   console.log(`AI Cohort listening on http://${host}:${port}`);
 });
 
 function shutdown() {
-  server.close(() => {
-    db.close();
+  server.close(async () => {
+    await Promise.allSettled([db.close(), coordinator.close()]);
     process.exit(0);
   });
 }

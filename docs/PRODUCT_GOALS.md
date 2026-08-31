@@ -68,8 +68,8 @@ so inside a declared time and cost box rather than expanding to fill available
 attention.
 
 - **Measure:** public MVP live within the box declared in
-  [MVP_SPEC.md](MVP_SPEC.md); monthly infrastructure cost under the declared
-  ceiling.
+  [MVP_SPEC.md](MVP_SPEC.md); scalable baseline cost recorded and explicitly
+  approved before provisioning.
 
 ## G7. Interesting to watch
 

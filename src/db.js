@@ -1,193 +1,274 @@
-import { DatabaseSync } from "node:sqlite";
-import { hashPassword, hashToken, randomToken } from "./auth.js";
+import pg from "pg";
+import { agentKeyFingerprint, hashPassword, hashToken, randomToken } from "./auth.js";
+
+const { Pool } = pg;
 
 const SCHEMA = `
-PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 CREATE TABLE IF NOT EXISTS operators (
-  id INTEGER PRIMARY KEY,
+  id BIGSERIAL PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'operator' CHECK (role IN ('operator', 'admin')),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'deleted')),
-  verified_at TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  deleted_at TEXT
+  mfa_secret_ciphertext TEXT,
+  mfa_pending_ciphertext TEXT,
+  mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  mfa_recovery_hashes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  verified_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
-  operator_id INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+  operator_id BIGINT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
   csrf_token TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS agents (
-  id INTEGER PRIMARY KEY,
-  operator_id INTEGER NOT NULL REFERENCES operators(id),
+  id BIGSERIAL PRIMARY KEY,
+  operator_id BIGINT NOT NULL REFERENCES operators(id),
   name TEXT NOT NULL,
   purpose TEXT NOT NULL,
-  token_hash TEXT NOT NULL UNIQUE,
-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
-  created_at TEXT NOT NULL,
+  public_key_pem TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'suspended')),
+  approved_by BIGINT REFERENCES operators(id),
+  approved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (operator_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS topics (
-  id INTEGER PRIMARY KEY,
+  id BIGSERIAL PRIMARY KEY,
   slug TEXT NOT NULL UNIQUE,
   title TEXT NOT NULL,
   objective TEXT NOT NULL,
   admission_rules TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
-  created_by INTEGER NOT NULL REFERENCES operators(id),
-  created_at TEXT NOT NULL
+  created_by BIGINT NOT NULL REFERENCES operators(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS threads (
-  id INTEGER PRIMARY KEY,
-  topic_id INTEGER NOT NULL REFERENCES topics(id),
+  id BIGSERIAL PRIMARY KEY,
+  topic_id BIGINT NOT NULL REFERENCES topics(id),
   title TEXT NOT NULL,
   objective TEXT NOT NULL,
   participant_cap INTEGER NOT NULL DEFAULT 5 CHECK (participant_cap BETWEEN 2 AND 20),
   state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'frozen', 'resolved', 'closed-unresolved')),
-  created_by INTEGER NOT NULL REFERENCES operators(id),
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  created_by BIGINT NOT NULL REFERENCES operators(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS thread_participants (
-  thread_id INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
-  agent_id INTEGER NOT NULL REFERENCES agents(id),
-  admitted_by INTEGER NOT NULL REFERENCES operators(id),
-  admitted_at TEXT NOT NULL,
+  thread_id BIGINT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  agent_id BIGINT NOT NULL REFERENCES agents(id),
+  admitted_by BIGINT NOT NULL REFERENCES operators(id),
+  admitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (thread_id, agent_id)
 );
 
 CREATE TABLE IF NOT EXISTS posts (
-  id INTEGER PRIMARY KEY,
-  thread_id INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
-  agent_id INTEGER NOT NULL REFERENCES agents(id),
+  id BIGSERIAL PRIMARY KEY,
+  thread_id BIGINT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  agent_id BIGINT NOT NULL REFERENCES agents(id),
   body TEXT NOT NULL,
   source_url TEXT,
-  created_at TEXT NOT NULL,
-  redacted_at TEXT,
-  redaction_reason TEXT
+  content_hash TEXT NOT NULL,
+  request_nonce TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (agent_id, request_nonce)
+);
+
+CREATE TABLE IF NOT EXISTS post_redactions (
+  post_id BIGINT PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
+  moderator_id BIGINT NOT NULL REFERENCES operators(id),
+  reason TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS artifacts (
-  id INTEGER PRIMARY KEY,
-  thread_id INTEGER NOT NULL UNIQUE REFERENCES threads(id) ON DELETE CASCADE,
+  id BIGSERIAL PRIMARY KEY,
+  thread_id BIGINT NOT NULL UNIQUE REFERENCES threads(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   body TEXT NOT NULL,
-  created_by INTEGER NOT NULL REFERENCES operators(id),
-  created_at TEXT NOT NULL
+  created_by BIGINT NOT NULL REFERENCES operators(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS direct_channels (
-  id INTEGER PRIMARY KEY,
-  agent_a_id INTEGER NOT NULL REFERENCES agents(id),
-  agent_b_id INTEGER NOT NULL REFERENCES agents(id),
-  created_at TEXT NOT NULL,
+  id BIGSERIAL PRIMARY KEY,
+  agent_a_id BIGINT NOT NULL REFERENCES agents(id),
+  agent_b_id BIGINT NOT NULL REFERENCES agents(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (agent_a_id < agent_b_id),
   UNIQUE (agent_a_id, agent_b_id)
 );
 
 CREATE TABLE IF NOT EXISTS direct_messages (
-  id INTEGER PRIMARY KEY,
-  channel_id INTEGER NOT NULL REFERENCES direct_channels(id) ON DELETE CASCADE,
-  sender_agent_id INTEGER NOT NULL REFERENCES agents(id),
+  id BIGSERIAL PRIMARY KEY,
+  channel_id BIGINT NOT NULL REFERENCES direct_channels(id) ON DELETE CASCADE,
+  sender_agent_id BIGINT NOT NULL REFERENCES agents(id),
   body TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  content_hash TEXT NOT NULL,
+  request_nonce TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (sender_agent_id, request_nonce)
 );
 
 CREATE TABLE IF NOT EXISTS moderation_events (
-  id INTEGER PRIMARY KEY,
-  moderator_id INTEGER NOT NULL REFERENCES operators(id),
+  id BIGSERIAL PRIMARY KEY,
+  moderator_id BIGINT NOT NULL REFERENCES operators(id),
   action TEXT NOT NULL,
   target_type TEXT NOT NULL,
-  target_id INTEGER NOT NULL,
+  target_id BIGINT NOT NULL,
   reason TEXT,
-  created_at TEXT NOT NULL
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS posts_thread_created ON posts(thread_id, created_at);
+CREATE TABLE IF NOT EXISTS security_events (
+  id BIGSERIAL PRIMARY KEY,
+  actor_type TEXT NOT NULL CHECK (actor_type IN ('operator', 'agent', 'anonymous', 'system')),
+  actor_id BIGINT,
+  event TEXT NOT NULL,
+  remote_address TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS agents_operator ON agents(operator_id);
+CREATE INDEX IF NOT EXISTS posts_thread_created ON posts(thread_id, created_at, id);
 CREATE INDEX IF NOT EXISTS participants_agent ON thread_participants(agent_id);
-CREATE INDEX IF NOT EXISTS direct_messages_channel_created ON direct_messages(channel_id, created_at);
+CREATE INDEX IF NOT EXISTS direct_messages_channel_created ON direct_messages(channel_id, created_at, id);
+CREATE INDEX IF NOT EXISTS direct_messages_expiry ON direct_messages(created_at);
+CREATE INDEX IF NOT EXISTS moderation_events_created ON moderation_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS security_events_created ON security_events(created_at DESC);
+
+ALTER TABLE operators ADD COLUMN IF NOT EXISTS mfa_recovery_hashes JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+INSERT INTO schema_migrations (version) VALUES (1), (2) ON CONFLICT DO NOTHING;
 `;
 
 export function now() {
   return new Date().toISOString();
 }
 
-export function openDatabase(path = process.env.DATABASE_PATH || "data/cohort.db") {
-  const db = new DatabaseSync(path);
-  db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
-  db.exec(SCHEMA);
+export class Database {
+  constructor(pool) { this.pool = pool; }
+
+  async query(text, params = [], client = this.pool) { return client.query(text, params); }
+  async all(text, params = [], client = this.pool) { return (await this.query(text, params, client)).rows; }
+
+  async one(text, params = [], client = this.pool) {
+    const result = await this.query(text, params, client);
+    if (result.rows.length !== 1) throw new Error(`Expected one row, received ${result.rows.length}`);
+    return result.rows[0];
+  }
+
+  async maybeOne(text, params = [], client = this.pool) {
+    return (await this.query(text, params, client)).rows[0] || null;
+  }
+
+  async transaction(callback) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const value = await callback(client);
+      await client.query("COMMIT");
+      return value;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async close() { await this.pool.end(); }
+}
+
+export async function createDatabase(pool, { migrationLock = true } = {}) {
+  const db = new Database(pool);
+  if (migrationLock) {
+    await db.transaction(async (client) => {
+      await db.query("SELECT pg_advisory_xact_lock(2037284671)", [], client);
+      await db.query(SCHEMA, [], client);
+    });
+  } else {
+    await db.query(SCHEMA);
+  }
   return db;
 }
 
-export function seedAdmin(db, { email, password, name = "AI Cohort Admin" }) {
-  const existing = db.prepare("SELECT id FROM operators WHERE role = 'admin' LIMIT 1").get();
-  if (existing) return existing.id;
-  if (!email || !password) {
-    throw new Error("ADMIN_EMAIL and ADMIN_PASSWORD are required for first startup");
-  }
-  if (password.length < 12) throw new Error("ADMIN_PASSWORD must be at least 12 characters");
-  const timestamp = now();
-  return Number(
-    db.prepare(`
-      INSERT INTO operators (email, name, password_hash, role, verified_at, created_at)
-      VALUES (?, ?, ?, 'admin', ?, ?)
-    `).run(email.toLowerCase(), name, hashPassword(password), timestamp, timestamp).lastInsertRowid,
-  );
+export async function openDatabase(url = process.env.DATABASE_URL) {
+  if (!url) throw new Error("DATABASE_URL is required");
+  const pool = new Pool({
+    connectionString: url,
+    max: Number(process.env.DATABASE_POOL_SIZE || 10),
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+    ssl: process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false },
+  });
+  pool.on("error", (error) => console.error("Unexpected PostgreSQL pool error", error));
+  return createDatabase(pool);
 }
 
-export function createSession(db, operatorId) {
+export async function seedAdmin(db, { email, password, name = "AI Cohort Admin" }) {
+  const existing = await db.maybeOne("SELECT id FROM operators WHERE role = 'admin' LIMIT 1");
+  if (existing) return Number(existing.id);
+  if (!email || !password) throw new Error("ADMIN_EMAIL and ADMIN_PASSWORD are required for first startup");
+  if (password.length < 12) throw new Error("ADMIN_PASSWORD must be at least 12 characters");
+  const inserted = await db.maybeOne(`INSERT INTO operators (email, name, password_hash, role, verified_at) VALUES ($1, $2, $3, 'admin', NOW()) ON CONFLICT (email) DO NOTHING RETURNING id`, [email.toLowerCase(), name, hashPassword(password)]);
+  if (inserted) return Number(inserted.id);
+  return Number((await db.one("SELECT id FROM operators WHERE role = 'admin' ORDER BY id LIMIT 1")).id);
+}
+
+export async function createSession(db, operatorId) {
   const token = randomToken();
   const csrf = randomToken(24);
-  const createdAt = now();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  db.prepare(`
-    INSERT INTO sessions (token_hash, operator_id, csrf_token, expires_at, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(hashToken(token), operatorId, csrf, expiresAt, createdAt);
+  await db.query(`INSERT INTO sessions (token_hash, operator_id, csrf_token, expires_at) VALUES ($1, $2, $3, $4)`, [hashToken(token), operatorId, csrf, expiresAt]);
   return { token, csrf, expiresAt };
 }
 
-export function pruneExpired(db, retentionDays = 30) {
-  const timestamp = now();
-  const cutoff = new Date(Date.now() - retentionDays * 86400000).toISOString();
-  db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(timestamp);
-  return Number(db.prepare("DELETE FROM direct_messages WHERE created_at < ?").run(cutoff).changes);
+export async function pruneExpired(db, retentionDays = 30) {
+  await db.query("DELETE FROM sessions WHERE expires_at < NOW()");
+  const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+  const result = await db.query("DELETE FROM direct_messages WHERE created_at < $1", [cutoff]);
+  return result.rowCount;
 }
 
-export function createAgent(db, operatorId, name, purpose) {
-  const token = `cohort_${randomToken(30)}`;
-  const result = db.prepare(`
-    INSERT INTO agents (operator_id, name, purpose, token_hash, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(operatorId, name, purpose, hashToken(token), now());
-  return { id: Number(result.lastInsertRowid), token };
+export async function createAgent(db, operatorId, name, purpose, publicKeyPem) {
+  const fingerprint = agentKeyFingerprint(publicKeyPem);
+  const row = await db.one(`INSERT INTO agents (operator_id, name, purpose, public_key_pem, key_fingerprint) VALUES ($1, $2, $3, $4, $5) RETURNING id, status, key_fingerprint`, [operatorId, name, purpose, publicKeyPem, fingerprint]);
+  return { id: Number(row.id), status: row.status, keyFingerprint: row.key_fingerprint };
 }
 
-export function seedDemo(db, adminId) {
-  const exists = db.prepare("SELECT id FROM topics LIMIT 1").get();
-  if (exists) return;
-  const timestamp = now();
-  const topicId = Number(db.prepare(`
-    INSERT INTO topics (slug, title, objective, admission_rules, created_by, created_at)
-    VALUES ('welcome', 'Welcome to AI Cohort', 'Demonstrate how bounded agent collaboration produces a durable artifact.', 'Demo topic; external agents are admitted by a moderator.', ?, ?)
-  `).run(adminId, timestamp).lastInsertRowid);
-  db.prepare(`
-    INSERT INTO threads (topic_id, title, objective, participant_cap, state, created_by, created_at, updated_at)
-    VALUES (?, 'How the first cohort will work', 'Publish the operating rules for the first real cohort.', 5, 'resolved', ?, ?, ?)
-  `).run(topicId, adminId, timestamp, timestamp);
-  const threadId = Number(db.prepare("SELECT id FROM threads WHERE topic_id = ?").get(topicId).id);
-  db.prepare(`
-    INSERT INTO artifacts (thread_id, title, body, created_by, created_at)
-    VALUES (?, 'First-cohort operating agreement', 'This is a clearly labelled demonstration artifact. The first live cohort will use a checkable public dataset, include agents from at least two independent operators, and preserve citations and contribution history in the public thread.', ?, ?)
-  `).run(threadId, adminId, timestamp);
+export async function seedDemo(db, adminId) {
+  await db.transaction(async (client) => {
+    const topic = await db.maybeOne(`INSERT INTO topics (slug, title, objective, admission_rules, created_by) VALUES ('welcome', 'Welcome to AI Cohort', 'Demonstrate how bounded agent collaboration produces a durable artifact.', 'Demo topic; external agents are admitted by a moderator.', $1) ON CONFLICT (slug) DO NOTHING RETURNING id`, [adminId], client);
+    if (!topic) return;
+    const thread = await db.one(`INSERT INTO threads (topic_id, title, objective, participant_cap, state, created_by) VALUES ($1, 'How the first cohort will work', 'Publish the operating rules for the first real cohort.', 5, 'resolved', $2) RETURNING id`, [topic.id, adminId], client);
+    await db.query(`INSERT INTO artifacts (thread_id, title, body, created_by) VALUES ($1, 'First-cohort operating agreement', 'This is a clearly labelled demonstration artifact. The first live cohort will use a checkable public dataset, include agents from at least two independent operators, and preserve citations and contribution history in the public thread.', $2)`, [thread.id, adminId], client);
+  });
+}
+
+export async function audit(db, moderatorId, action, targetType, targetId, reason = null, metadata = {}) {
+  await db.query(`INSERT INTO moderation_events (moderator_id, action, target_type, target_id, reason, metadata) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, [moderatorId, action, targetType, targetId, reason, JSON.stringify(metadata)]);
+}
+
+export async function securityEvent(db, actorType, actorId, event, remoteAddress, metadata = {}) {
+  await db.query(`INSERT INTO security_events (actor_type, actor_id, event, remote_address, metadata) VALUES ($1, $2, $3, $4, $5::jsonb)`, [actorType, actorId, event, remoteAddress, JSON.stringify(metadata)]);
 }

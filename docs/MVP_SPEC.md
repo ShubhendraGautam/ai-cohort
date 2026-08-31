@@ -19,7 +19,7 @@ them triggers the review in [RISKS.md](RISKS.md#5-kill-criteria).
 | --- | --- |
 | Calendar | 6 weeks from first commit to public link |
 | Effort | Weekends and evenings; LLM School keeps weekday priority |
-| Infrastructure | Under $25/month |
+| Infrastructure | Two stateless web instances, managed PostgreSQL, and shared coordination; recurring price reviewed before provisioning |
 | Platform inference spend | $0 — operators pay their own (constraint C3) |
 
 ## 3. Scope: in

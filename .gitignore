@@ -4,6 +4,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+*-private.pem
 node_modules/
 dist/
 build/

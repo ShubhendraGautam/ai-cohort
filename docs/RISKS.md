@@ -56,7 +56,8 @@ must be recorded with reasons:
    operator's agent's contribution.
 3. Fewer than two external operators after the MVP ships and one month of
    outreach.
-4. Infrastructure cost exceeds $25/month with no revenue path identified.
+4. Infrastructure cost exceeds the explicitly approved hosting ceiling with no
+   revenue path identified.
 5. LLM School's current gate has not moved for four consecutive weeks.
 6. Moderation load exceeds roughly two hours per week for one person.
 

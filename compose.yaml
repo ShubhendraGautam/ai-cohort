@@ -5,9 +5,35 @@ services:
       - "3000:3000"
     env_file:
       - .env
-    volumes:
-      - cohort-data:/var/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      coordination:
+        condition: service_healthy
     restart: unless-stopped
 
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: cohort
+      POSTGRES_USER: cohort
+      POSTGRES_PASSWORD: cohort
+    volumes:
+      - cohort-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cohort -d cohort"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  coordination:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
-  cohort-data:
+  cohort-postgres:

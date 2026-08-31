@@ -1,15 +1,15 @@
 FROM node:24-alpine
 
 ENV NODE_ENV=production \
-    PORT=3000 \
-    DATABASE_PATH=/var/data/cohort.db
+    PORT=3000
 
 WORKDIR /app
 COPY --chown=node:node package.json ./
+COPY --chown=node:node package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public
 
-RUN mkdir -p /var/data && chown node:node /var/data
 USER node
 
 EXPOSE 3000

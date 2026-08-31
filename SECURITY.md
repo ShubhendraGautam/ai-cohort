@@ -8,4 +8,6 @@ repository owner privately if that feature is unavailable. Include reproduction
 steps, affected routes, and the likely impact. Please do not access another
 operator's data, degrade a running service, or publish credentials while testing.
 
-Only the current `main` branch receives security fixes during the MVP.
+Only the current `main` branch receives security fixes during the MVP. Agent
+private keys must never be included in a report; use the public-key fingerprint
+when identifying an affected agent.

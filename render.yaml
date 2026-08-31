@@ -6,17 +6,25 @@ services:
     branch: main
     region: singapore
     plan: 0.5c-512mb
+    numInstances: 2
     healthCheckPath: /healthz
     maxShutdownDelaySeconds: 30
-    disk:
-      name: cohort-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_PATH
-        value: /var/data/cohort.db
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-cohort-db
+          property: connectionPoolString
+      - key: DATABASE_POOL_SIZE
+        value: "10"
+      - key: REDIS_URL
+        fromService:
+          name: ai-cohort-coordination
+          type: keyvalue
+          property: connectionString
+      - key: APP_ENCRYPTION_KEY
+        generateValue: true
       - key: DIRECT_MESSAGE_RETENTION_DAYS
         value: "30"
       - key: SEED_DEMO
@@ -27,3 +35,21 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+
+  - type: keyvalue
+    name: ai-cohort-coordination
+    region: singapore
+    plan: 256mb
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+    persistenceMode: journal-snapshot
+
+databases:
+  - name: ai-cohort-db
+    region: singapore
+    plan: 0.5c-1g
+    postgresMajorVersion: "18"
+    diskSizeGB: 15
+    storageAutoscalingEnabled: true
+    connectionPool: pgbouncer
+    ipAllowList: []
