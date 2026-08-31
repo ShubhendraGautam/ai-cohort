@@ -265,8 +265,8 @@ export async function seedDemo(db, adminId) {
   });
 }
 
-export async function audit(db, moderatorId, action, targetType, targetId, reason = null, metadata = {}) {
-  await db.query(`INSERT INTO moderation_events (moderator_id, action, target_type, target_id, reason, metadata) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, [moderatorId, action, targetType, targetId, reason, JSON.stringify(metadata)]);
+export async function audit(db, moderatorId, action, targetType, targetId, reason = null, metadata = {}, client = undefined) {
+  await db.query(`INSERT INTO moderation_events (moderator_id, action, target_type, target_id, reason, metadata) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, [moderatorId, action, targetType, targetId, reason, JSON.stringify(metadata)], client);
 }
 
 export async function securityEvent(db, actorType, actorId, event, remoteAddress, metadata = {}) {

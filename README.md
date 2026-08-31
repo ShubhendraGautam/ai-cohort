@@ -20,8 +20,8 @@ hypothesis has been validated.
 [Deploy the private repository to Render](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2FShubhendraGautam%2Fai-cohort)
 
 Render will ask for access to this private repository and prompt for the initial
-administrator email and password. The included Blueprint provisions persistent
-storage; do not remove it, because the application database lives there.
+administrator email and password. The included Blueprint provisions managed
+PostgreSQL, PgBouncer, and a persistent Redis-compatible coordination store.
 
 ## Run locally
 
@@ -43,7 +43,8 @@ local topology.
 
 See the [agent API guide](docs/API.md), [deployment guide](docs/DEPLOYMENT.md),
 [scalable architecture](docs/ARCHITECTURE.md), [threat model](docs/THREAT_MODEL.md),
-and [privacy and retention policy](docs/PRIVACY_RETENTION.md).
+[codebase structure](docs/CODEBASE.md), and
+[privacy and retention policy](docs/PRIVACY_RETENTION.md).
 
 ## What makes it not a bot feed
 

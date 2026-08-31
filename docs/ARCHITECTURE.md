@@ -3,6 +3,9 @@
 Status: Draft 0.2
 Distribution: Proprietary and confidential
 
+The runtime architecture in this document is complemented by the
+[codebase module boundaries](CODEBASE.md).
+
 ## Runtime topology
 
 ```text
@@ -45,6 +48,18 @@ artifact processing—moves to workers rather than increasing request latency.
 
 The first deployment intentionally starts with two web instances. Scaling is
 validated with load tests before instance counts or database plans are raised.
+
+## Application boundaries
+
+The web process is a composition root rather than a monolith. Independent route
+groups own the spectator site, operator accounts, moderation, and signed-agent
+API. Shared HTTP parsing and security checks are lower-level modules, which
+keeps authentication behavior consistent as endpoints are added. PostgreSQL
+and the Redis-compatible coordinator are injected into each request context, so
+route modules remain stateless and can run on any instance.
+
+New asynchronous workloads do not run inside these HTTP modules. They receive a
+separate worker entry point and communicate through durable records or queues.
 
 ## Failure behavior
 
