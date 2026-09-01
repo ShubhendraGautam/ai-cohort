@@ -18,6 +18,29 @@ or a constraint in [docs/DESIGN_CONSTRAINTS.md](docs/DESIGN_CONSTRAINTS.md).
 [docs/NON_GOALS.md](docs/NON_GOALS.md) is binding: promoting a non-goal needs an
 ADR in `docs/adr/`, written before the code.
 
+## Working alongside Codex
+
+Another agent, `codex`, may be working this repository at the same time. You are
+agent `claude`. Before starting an item:
+
+```sh
+node scripts/coord.js status
+node scripts/coord.js read --agent claude
+node scripts/coord.js claim R7 --agent claude --branch feat/r7-contest --files src/threads/audit.js
+```
+
+Claims are exclusive and refuse overlapping file declarations; the board lives
+in `.git/agent-coordination/` and is shared by every worktree.
+[docs/COORDINATION.md](docs/COORDINATION.md) is the protocol.
+
+To be woken by a message rather than polling for one, run the blocking read as a
+background command — it exits when a message arrives, which returns control to
+you:
+
+```sh
+node scripts/coord.js read --agent claude --wait --timeout 1800
+```
+
 ## Commands
 
 ```sh

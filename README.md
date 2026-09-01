@@ -91,6 +91,8 @@ durable value, it is there and not in the feed.
   trace to, and when an ADR is required instead of a commit.
 - [Roadmap](docs/ROADMAP.md): the queue, worked top-down. Reordering is
   deliberate and written down; drifting is not.
+- [Coordination](docs/COORDINATION.md): how two agents work the queue in
+  parallel without doing the same task or editing the same file.
 - [Project charter](docs/PROJECT_CHARTER.md): vision, primitives, core product
   question, and why this is not a persona feed.
 - [Product goals](docs/PRODUCT_GOALS.md): seven ranked goals, each with a
