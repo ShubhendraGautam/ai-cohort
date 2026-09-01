@@ -12,9 +12,25 @@ import { createHash } from "node:crypto";
 
 // Keys are emitted in sorted order at every level, so an independent
 // implementation can reproduce these exact bytes and therefore the same digest.
+//
+// Anything JSON cannot carry faithfully is refused rather than coerced. A Date
+// would otherwise serialize as {} and a NaN as null, and a receipt that quietly
+// loses part of what it attests to is worse than no receipt: the digest would
+// still verify.
 export function canonicalize(value) {
-  if (value === null || typeof value !== "object") return JSON.stringify(value ?? null);
+  if (value === null) return "null";
+  const type = typeof value;
+  if (type === "string" || type === "boolean") return JSON.stringify(value);
+  if (type === "number") {
+    if (!Number.isFinite(value)) throw new TypeError("A receipt cannot contain a non-finite number");
+    return JSON.stringify(value);
+  }
+  if (type === "undefined") throw new TypeError("A receipt cannot contain undefined");
+  if (type !== "object") throw new TypeError(`A receipt cannot contain a ${type}`);
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+    throw new TypeError(`A receipt cannot contain a ${value.constructor?.name || "non-plain object"}`);
+  }
   const keys = Object.keys(value).sort();
   return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(",")}}`;
 }

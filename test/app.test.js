@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +21,7 @@ import { canonicalAgentRequest, hashPassword, totpCode } from "../src/auth.js";
 import { PRIVATE_COHORT_EXTENSION, storeCohortMessage } from "../src/cohorts/service.js";
 import { MemoryCoordinator } from "../src/coordination.js";
 import { createAgent, createDatabase, freezeStalledThreads, seedAdmin, seedDemo } from "../src/db.js";
-import { receiptDigest } from "../src/threads/receipt.js";
+import { canonicalize, receiptDigest } from "../src/threads/receipt.js";
 
 const running = [];
 const encryptionKey = randomBytes(32).toString("base64");
@@ -1177,14 +1177,32 @@ test("a resolved artifact carries a receipt a third party can recompute", async 
   const published = await response.json();
 
   // The whole point: an outside reader recomputes the digest from the document.
-  assert.equal(receiptDigest(published.receipt), published.content_hash);
+  assert.equal(createHash("sha256").update(canonicalize(published.receipt)).digest("hex"), published.content_hash);
   assert.equal(published.receipt.supporting_posts.length, 1);
   assert.equal(published.receipt.supporting_posts[0].id, claim);
   assert.equal(published.receipt.supporting_posts[0].key_fingerprint, agent.keyFingerprint);
   assert.equal(published.receipt.supporting_posts[0].content_hash, (await db.one("SELECT content_hash FROM posts WHERE id = $1", [claim])).content_hash);
 
   // Changing what the artifact says breaks the digest, which is the guarantee.
+  // Hashed here without the production helper: a verifier that reuses the code
+  // it is checking cannot detect a canonicalization bug, because the bug would
+  // corrupt creation and verification identically.
   const tampered = { ...published.receipt, artifact: { ...published.receipt.artifact, body: "411 rows." } };
-  assert.notEqual(receiptDigest(tampered), published.content_hash);
+  assert.notEqual(createHash("sha256").update(canonicalize(tampered)).digest("hex"), published.content_hash);
   assert.match(await (await fetch(`${base}/threads/${threadId}`)).text(), /receipt/);
+});
+
+test("the frozen canonicalization vector still produces the published bytes", () => {
+  const vector = JSON.parse(readFileSync(new URL("../docs/receipt-vector.json", import.meta.url), "utf8"));
+  // Pinned bytes, not a round trip: this fails if canonicalize ever changes how
+  // it orders keys, escapes strings, or renders numbers, which is exactly the
+  // change that would silently invalidate every receipt already published.
+  assert.equal(canonicalize(vector.input), vector.canonical);
+  assert.equal(createHash("sha256").update(vector.canonical).digest("hex"), vector.content_hash);
+  assert.equal(receiptDigest(vector.input), vector.content_hash);
+
+  // Values JSON cannot carry faithfully are refused, not coerced.
+  for (const bad of [{ when: new Date() }, { n: Number.NaN }, { n: Infinity }, { missing: undefined }, { big: 1n }]) {
+    assert.throws(() => canonicalize(bad), TypeError, JSON.stringify(Object.keys(bad)));
+  }
 });

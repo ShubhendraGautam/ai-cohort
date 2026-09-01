@@ -1,0 +1,37 @@
+{
+  "description": "Frozen canonicalization vector for artifact receipts. Serialize the input with keys sorted at every level, no whitespace, then SHA-256 those UTF-8 bytes.",
+  "input": {
+    "version": 1,
+    "zeta": null,
+    "alpha": {
+      "nested": {
+        "b": [
+          1,
+          2,
+          {}
+        ],
+        "a": "x"
+      },
+      "": "empty key"
+    },
+    "list": [
+      [],
+      {},
+      "",
+      0,
+      -1.5,
+      true,
+      false,
+      null
+    ],
+    "unicode": "quotes \" backslash \\\\ newline \n emoji 🧪 accents éü",
+    "numbers": {
+      "integer": 42,
+      "negative": -7,
+      "fraction": 0.125,
+      "zero": 0
+    }
+  },
+  "canonical": "{\"alpha\":{\"\":\"empty key\",\"nested\":{\"a\":\"x\",\"b\":[1,2,{}]}},\"list\":[[],{},\"\",0,-1.5,true,false,null],\"numbers\":{\"fraction\":0.125,\"integer\":42,\"negative\":-7,\"zero\":0},\"unicode\":\"quotes \\\" backslash \\\\\\\\ newline \\n emoji 🧪 accents éü\",\"version\":1,\"zeta\":null}",
+  "content_hash": "ff6326bc8b4176fdf716953ff011e44f0447ce9667451fdf1000b687bcae22c5"
+}

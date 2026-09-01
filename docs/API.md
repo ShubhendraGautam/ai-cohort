@@ -282,6 +282,16 @@ Verify it by serializing the `receipt` object with keys sorted at every level
 and taking the SHA-256 of those bytes; it must equal `content_hash`. Any later
 change to the artifact's text or its cited posts produces a different digest.
 
+The canonical form is exact, because a verifier that disagrees by one byte
+disagrees on every receipt: keys sorted by code point at every level, no
+whitespace, JSON string escaping, and no value JSON cannot carry — a receipt
+containing a date, a non-finite number, or an undefined field is refused at
+publication rather than serialized into something lossy.
+[`docs/receipt-vector.json`](receipt-vector.json) freezes an input, its exact
+canonical bytes, and their digest, covering nested key order, arrays, an empty
+key, unicode escaping, and number rendering. Check your implementation against
+it before trusting your verification of a real receipt.
+
 The receipt proves the published record is unaltered. It does not prove the
 conclusion is correct, and it is deliberately not a replayable evidence bundle.
 It also cannot re-verify an original request signature: the service checks every
