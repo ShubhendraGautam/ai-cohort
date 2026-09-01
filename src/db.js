@@ -302,7 +302,14 @@ INSERT INTO schema_migrations (version) VALUES (1), (2), (3), (4) ON CONFLICT DO
 `;
 
 const DAY_MS = 86_400_000;
+export const DEFAULT_RETENTION_DAYS = 30;
 export const DEFAULT_THREAD_STALE_AFTER_DAYS = 7;
+
+export function configuredRetentionDays(value = process.env.DIRECT_MESSAGE_RETENTION_DAYS) {
+  const days = Number(value === undefined || value === "" ? DEFAULT_RETENTION_DAYS : value);
+  if (!Number.isInteger(days) || days <= 0) throw new Error("DIRECT_MESSAGE_RETENTION_DAYS must be a positive integer");
+  return days;
+}
 
 export function configuredThreadStaleAfterDays(value = process.env.THREAD_STALE_AFTER_DAYS) {
   const days = Number(value === undefined || value === "" ? DEFAULT_THREAD_STALE_AFTER_DAYS : value);
@@ -348,8 +355,9 @@ export class Database {
   async close() { await this.pool.end(); }
 }
 
-export async function createDatabase(pool, { migrationLock = true } = {}) {
+export async function createDatabase(pool, { migrationLock = true, migrate = true } = {}) {
   const db = new Database(pool);
+  if (!migrate) return db;
   if (migrationLock) {
     await db.transaction(async (client) => {
       await db.query("SELECT pg_advisory_xact_lock(2037284671)", [], client);
@@ -361,7 +369,7 @@ export async function createDatabase(pool, { migrationLock = true } = {}) {
   return db;
 }
 
-export async function openDatabase(url = process.env.DATABASE_URL) {
+export async function openDatabase(url = process.env.DATABASE_URL, options = {}) {
   if (!url) throw new Error("DATABASE_URL is required");
   const pool = new Pool({
     connectionString: url,
@@ -371,7 +379,7 @@ export async function openDatabase(url = process.env.DATABASE_URL) {
     ssl: process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false },
   });
   pool.on("error", (error) => console.error("Unexpected PostgreSQL pool error", error));
-  return createDatabase(pool);
+  return createDatabase(pool, options);
 }
 
 export async function seedAdmin(db, { email, password, name = "AI Cohort Admin" }) {
@@ -392,26 +400,45 @@ export async function createSession(db, operatorId) {
   return { token, csrf, expiresAt };
 }
 
-export async function pruneExpired(db, retentionDays = 30) {
-  await db.query("DELETE FROM sessions WHERE expires_at < NOW()");
-  const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
-  const direct = await db.query("DELETE FROM direct_messages WHERE created_at < $1", [cutoff]);
-  const cohort = await db.query("DELETE FROM assistant_cohort_messages WHERE created_at < $1", [cutoff]);
-  return direct.rowCount + cohort.rowCount;
+export async function pruneExpired(db, options = {}) {
+  const normalized = typeof options === "number" ? { retentionDays: options } : options;
+  const {
+    retentionDays = DEFAULT_RETENTION_DAYS,
+    now: reference = new Date(),
+    client,
+  } = normalized;
+  const days = configuredRetentionDays(retentionDays);
+  const at = new Date(reference);
+  if (Number.isNaN(at.getTime())) throw new Error("now must be a valid date");
+  const cutoff = new Date(at.getTime() - days * DAY_MS).toISOString();
+
+  const prune = async (activeClient) => {
+    const sessions = await db.query("DELETE FROM sessions WHERE expires_at <= $1", [at.toISOString()], activeClient);
+    const direct = await db.query("DELETE FROM direct_messages WHERE created_at <= $1", [cutoff], activeClient);
+    const cohort = await db.query("DELETE FROM assistant_cohort_messages WHERE created_at <= $1", [cutoff], activeClient);
+    return {
+      retentionDays: days,
+      cutoff,
+      deletedSessions: sessions.rowCount,
+      deletedDirectMessages: direct.rowCount,
+      deletedCohortMessages: cohort.rowCount,
+    };
+  };
+  return client ? prune(client) : db.transaction(prune);
 }
 
-export async function freezeStalledThreads(db, { staleAfterDays = DEFAULT_THREAD_STALE_AFTER_DAYS, now: reference = new Date() } = {}) {
+export async function freezeStalledThreads(db, { staleAfterDays = DEFAULT_THREAD_STALE_AFTER_DAYS, now: reference = new Date(), client } = {}) {
   const days = configuredThreadStaleAfterDays(staleAfterDays);
   const now = new Date(reference);
   if (Number.isNaN(now.getTime())) throw new Error("now must be a valid date");
 
   const cutoff = new Date(now.getTime() - days * DAY_MS).toISOString();
-  return db.transaction(async (client) => {
-    const candidates = await db.all("SELECT id FROM threads WHERE state = 'open' AND updated_at <= $1 ORDER BY id FOR UPDATE", [cutoff], client);
+  const freeze = async (activeClient) => {
+    const candidates = await db.all("SELECT id FROM threads WHERE state = 'open' AND updated_at <= $1 ORDER BY id FOR UPDATE", [cutoff], activeClient);
     const frozen = [];
     for (const candidate of candidates) {
       const threadId = Number(candidate.id);
-      const transition = await db.query("UPDATE threads SET state = 'frozen' WHERE id = $1 AND state = 'open' AND updated_at <= $2", [threadId, cutoff], client);
+      const transition = await db.query("UPDATE threads SET state = 'frozen' WHERE id = $1 AND state = 'open' AND updated_at <= $2", [threadId, cutoff], activeClient);
       if (!transition.rowCount) continue;
       await db.query(`INSERT INTO moderation_events (moderator_id, actor_type, action, target_type, target_id, reason, metadata, created_at)
         VALUES (NULL, 'system', 'auto-freeze', 'thread', $1, $2, $3::jsonb, $4)`, [
@@ -419,10 +446,33 @@ export async function freezeStalledThreads(db, { staleAfterDays = DEFAULT_THREAD
         `No thread activity for ${days} days`,
         JSON.stringify({ staleAfterDays: days, cutoff }),
         now.toISOString(),
-      ], client);
+      ], activeClient);
       frozen.push(threadId);
     }
     return frozen;
+  };
+  return client ? freeze(client) : db.transaction(freeze);
+}
+
+export async function runMaintenance(db, {
+  retentionDays = DEFAULT_RETENTION_DAYS,
+  staleAfterDays = DEFAULT_THREAD_STALE_AFTER_DAYS,
+  now: reference = new Date(),
+} = {}) {
+  const at = new Date(reference);
+  if (Number.isNaN(at.getTime())) throw new Error("now must be a valid date");
+  const atIso = at.toISOString();
+  const threadStaleAfterDays = configuredThreadStaleAfterDays(staleAfterDays);
+  const threadCutoff = new Date(at.getTime() - threadStaleAfterDays * DAY_MS).toISOString();
+
+  return db.transaction(async (client) => {
+    const retention = await pruneExpired(db, { retentionDays, now: at, client });
+    const frozenThreadIds = await freezeStalledThreads(db, { staleAfterDays: threadStaleAfterDays, now: at, client });
+    const result = { ranAt: atIso, retention, threadStaleAfterDays, threadCutoff, frozenThreadIds };
+    const recorded = { ranAt: atIso, retention, threadStaleAfterDays, threadCutoff, frozenThreads: frozenThreadIds.length };
+    await db.query(`INSERT INTO security_events (actor_type, actor_id, event, remote_address, metadata, created_at)
+      VALUES ('system', NULL, 'maintenance-completed', NULL, $1::jsonb, $2)`, [JSON.stringify(recorded), atIso], client);
+    return result;
   });
 }
 

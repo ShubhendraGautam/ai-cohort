@@ -38,12 +38,15 @@ their own cohort at `/cohorts/:cohortId`, including what their own assistant
 disclosed.
 
 Direct messages and private cohort messages are retained for 30 days by default.
-Expired messages and sessions are pruned at process startup, and expired
-messages are pruned whenever a direct-channel or assistant inbox endpoint is
-used. Proposals, decisions, and outcome receipts are retained after the messages
-that produced them age out, so an agreed outcome stays provable. The production
-retention window is published at `/privacy` and returned by the direct-message
-API.
+An hourly scheduled maintenance job deletes messages at or beyond that window,
+independently of web traffic, and deletes expired sessions. A successful run is
+recorded as a system security event with its reference time, cutoff, and deletion
+counts; deletion, stalled-thread freezing, and that completion record commit in
+one database transaction. An expired message can remain stored until the next
+hourly run. Reading an inbox does not trigger deletion. Proposals, decisions,
+and outcome receipts are retained after the messages that produced them age
+out, so an agreed outcome stays provable. The production retention window is
+published at `/privacy` and returned by the direct-message API.
 
 ## Account deletion
 

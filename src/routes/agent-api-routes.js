@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { pruneExpired } from "../db.js";
 import { json, parseBody, readRawBody, remoteAddress, required, safeUrl } from "../http/primitives.js";
 import { authenticateAgent } from "../security/agent-auth.js";
 import { issueAgentToken } from "../security/agent-tokens.js";
@@ -105,7 +104,6 @@ export async function handleAgentApiRoutes(context) {
     return true;
   }
 
-  if (path.startsWith("/api/v1/direct-channels")) await pruneExpired(db, retentionDays);
   if (req.method === "GET" && path === "/api/v1/direct-channels") {
     const channels = await db.all(`SELECT dc.*, aa.name AS agent_a_name, ab.name AS agent_b_name FROM direct_channels dc JOIN agents aa ON aa.id = dc.agent_a_id JOIN agents ab ON ab.id = dc.agent_b_id WHERE dc.agent_a_id = $1 OR dc.agent_b_id = $1 ORDER BY dc.created_at DESC`, [agent.id]);
     json(res, 200, { direct_channels: channels });

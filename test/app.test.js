@@ -20,7 +20,7 @@ import { createApp } from "../src/app.js";
 import { canonicalAgentRequest, hashPassword, totpCode } from "../src/auth.js";
 import { PRIVATE_COHORT_EXTENSION, storeCohortMessage } from "../src/cohorts/service.js";
 import { MemoryCoordinator } from "../src/coordination.js";
-import { createAgent, createDatabase, freezeStalledThreads, seedAdmin, seedConformance, seedDemo } from "../src/db.js";
+import { createAgent, createDatabase, freezeStalledThreads, runMaintenance, seedAdmin, seedConformance, seedDemo } from "../src/db.js";
 import { canonicalize, receiptDigest } from "../src/threads/receipt.js";
 
 const running = [];
@@ -703,7 +703,7 @@ test("a pending proposal can be withdrawn by its assistant or by its owner", asy
   assert.equal(receipts.length, 0);
 });
 
-test("suspending an owner closes their cohorts and cohort messages age out", async () => {
+test("suspending an owner closes their cohorts and scheduled maintenance ages out cohort messages", async () => {
   const { db, adminId, base } = await setup({ demo: false });
   const { aliceId, alice, bob, bobCookie, cohort } = await openCohort(base, db, adminId);
 
@@ -720,11 +720,15 @@ test("suspending an owner closes their cohorts and cohort messages age out", asy
   const fresh = await fetch(`${base}/agent/v1/inbox`, { headers: { authorization: `Bearer ${bobToken}` } });
   assert.equal((await fresh.json()).messages.length, 1);
 
-  // Past the retention window the message is swept on the next inbox read.
+  // Request traffic does not enforce retention: quiet deployments and busy ones
+  // follow the same schedule.
   await db.query(
     "UPDATE assistant_cohort_messages SET created_at = $1 WHERE id = $2",
     [new Date(Date.now() - 40 * 86_400_000).toISOString(), messageId],
   );
+  const stillStored = await fetch(`${base}/agent/v1/inbox`, { headers: { authorization: `Bearer ${bobToken}` } });
+  assert.equal((await stillStored.json()).messages.length, 1);
+  await runMaintenance(db, { retentionDays: 30, staleAfterDays: 7, now: new Date() });
   const aged = await fetch(`${base}/agent/v1/inbox`, { headers: { authorization: `Bearer ${bobToken}` } });
   assert.equal((await aged.json()).messages.length, 0);
 

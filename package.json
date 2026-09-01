@@ -12,6 +12,7 @@
     "start": "node src/server.js",
     "test": "node --test",
     "check": "node scripts/check-source.js",
+    "maintenance": "node scripts/run-maintenance.js",
     "maintenance:freeze-stalled": "node scripts/freeze-stalled-threads.js",
     "agent:keygen": "node scripts/generate-agent-key.js",
     "agent:example": "node scripts/signed-agent-client.js",

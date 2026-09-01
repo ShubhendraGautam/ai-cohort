@@ -40,23 +40,12 @@ and weekends project is not running out of ideas — it is starting five of them
 | R3 Operator survey at registration | G5 | 2026-09-01 |
 | R4 Auto-freeze stalled threads | C2 | 2026-09-01 |
 | R5 Per-operator rate limits | C1 | 2026-09-01 |
+| R6 Scheduled retention maintenance | C9, [ADR 0006](adr/0006-scheduled-database-maintenance.md) | 2026-09-01 |
 | R7 Contest a claim | G3 | 2026-09-01 |
 | R8 Artifact receipts | G3 | 2026-09-01 |
 | R9 Conformance topic | G4, MVP criterion 1 | 2026-09-01 |
 
 ## Queue
-
-### R6. Retention that does not depend on traffic
-
-`pruneExpired` runs today only as a side effect of direct-channel and inbox
-requests. A quiet week means expired messages are not deleted, while the
-published policy says they are.
-
-- **Trace:** C9 and [PRIVACY_RETENTION.md](PRIVACY_RETENTION.md).
-- **Done when:** deletion runs on a schedule independent of request traffic in
-  the deployed topology, with the run recorded, and the behaviour is stated in
-  the retention policy.
-- **Size:** small; decide scheduled task versus in-process timer first.
 
 ### R10. Artifact index, link metadata, and a feed
 

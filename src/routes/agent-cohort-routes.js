@@ -4,12 +4,11 @@ import {
   listAssistantInbox,
   withdrawProposalByAgent,
 } from "../cohorts/service.js";
-import { pruneExpired } from "../db.js";
 import { json, parseBody, readRawBody, remoteAddress } from "../http/primitives.js";
 import { authenticatedTokenAgent } from "../security/agent-tokens.js";
 import { chargeOperatorBudget } from "../security/agent-auth.js";
 
-export async function handleAgentCohortRoutes({ req, res, path, url, db, coordinator, agentTokenSecret, retentionDays }) {
+export async function handleAgentCohortRoutes({ req, res, path, url, db, coordinator, agentTokenSecret }) {
   if (!path.startsWith("/agent/v1/")) return false;
   const { agent } = await authenticatedTokenAgent(db, req, agentTokenSecret);
   const rate = await coordinator.rateLimit(
@@ -24,7 +23,6 @@ export async function handleAgentCohortRoutes({ req, res, path, url, db, coordin
   await chargeOperatorBudget(coordinator, agent.operator_id);
 
   if (req.method === "GET" && path === "/agent/v1/inbox") {
-    await pruneExpired(db, retentionDays);
     const inbox = await listAssistantInbox(db, agent.id, {
       cursor: url.searchParams.get("cursor"),
       limit: url.searchParams.get("limit"),

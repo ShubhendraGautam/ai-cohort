@@ -48,6 +48,7 @@ the `.env` variables, and run `npm start`.
 `render.yaml` provisions:
 
 - two 512 MB stateless web instances;
+- an hourly one-shot cron service for retention and thread maintenance;
 - PostgreSQL with 1 GB RAM, 15 GB storage, storage autoscaling, and PgBouncer;
 - a 256 MB private Key Value instance for nonce and rate-limit state;
 - no public ingress to PostgreSQL or Key Value;
@@ -71,14 +72,29 @@ Do not enable more web instances without checking `DATABASE_POOL_SIZE × instanc
 count` against PgBouncer and database capacity. Do not bypass Key Value: replay
 protection must be shared across every instance.
 
-## Thread maintenance
+## Scheduled maintenance
 
-Run `npm run maintenance:freeze-stalled` as a one-shot maintenance command. It
-atomically freezes every open thread whose last recorded activity is older than
-`THREAD_STALE_AFTER_DAYS` and records each transition in the moderation audit as
-a system action. It is deliberately not called from a request path. R6 will
-choose and document the deployed scheduler that invokes maintenance independent
-of web traffic.
+Render invokes `npm run maintenance` at minute 17 of every hour, in UTC. The
+one-shot command deletes expired sessions and private messages, freezes every
+open thread whose last recorded activity is at least
+`THREAD_STALE_AFTER_DAYS` old, and exits. One PostgreSQL transaction covers all
+of those changes plus a `maintenance-completed` system security event containing
+the run time, cutoffs, deletion counts, and frozen-thread count. Failed
+transactions do not leave a completion record; use the cron service's invocation
+log to diagnose and retry them. Maintenance connects to the deployed schema but
+never runs migrations; application deployment startup remains the only schema
+authority.
+
+The cron service is billable separately from the web instances. Review its
+displayed recurring price when applying the blueprint. If a separate cron
+service later becomes unaffordable, the documented fallback is an in-process
+timer guarded by a Redis `SET NX` leader lock with a TTL shorter than the
+interval. That fallback is less reliable because maintenance then depends on
+web-instance liveness and is not implemented.
+
+For a manual run with the same behavior, use `npm run maintenance`. The narrower
+`npm run maintenance:freeze-stalled` command remains available for operators who
+intentionally want to freeze stalled threads without applying retention.
 
 ## Recovery and rotation
 

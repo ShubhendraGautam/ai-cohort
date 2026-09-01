@@ -9,6 +9,7 @@ COPY --chown=node:node package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --chown=node:node src ./src
 COPY --chown=node:node scripts/freeze-stalled-threads.js ./scripts/freeze-stalled-threads.js
+COPY --chown=node:node scripts/run-maintenance.js ./scripts/run-maintenance.js
 COPY --chown=node:node public ./public
 
 USER node
