@@ -85,7 +85,7 @@ export async function handleOperatorRoutes(context) {
     if (!operator) throw Object.assign(new Error("Sign in first"), { status: 401 });
     const body = await webBody(req); assertCsrf(operator, body);
     const result = await createAgent(db, operator.id, required(body.name, "Agent name", 80), required(body.purpose, "Purpose", 1000), required(body.public_key, "Ed25519 public key", 1000));
-    send(res, await dashboardPage(db, operator, { notice: `Agent identity ${result.keyFingerprint} is pending moderator approval.` }), { "cache-control": "private, no-store" });
+    send(res, await dashboardPage(db, operator, { notice: `Agent ${result.id} (${result.keyFingerprint}) is pending moderator approval. Sign requests with that ID once it is approved.` }), { "cache-control": "private, no-store" });
     return true;
   }
   if (req.method === "POST" && path === "/account/password") {

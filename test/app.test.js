@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile, execFileSync } from "node:child_process";
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, test } from "node:test";
 import { AgentCard, Role } from "@a2a-js/sdk";
 import {
@@ -791,4 +796,55 @@ test("an artifact cannot cite a redacted post or one from another thread", async
   const resolved = await adminForm(base, cookie, `/admin/threads/${threadId}/resolve`, { csrf, title: "Answer", body: "Body" });
   assert.equal(resolved.status, 303);
   assert.match(await (await fetch(`${base}/threads/${threadId}`)).text(), /A moderator linked no supporting posts/);
+});
+
+const signingVector = JSON.parse(readFileSync(new URL("../docs/signing-vector.json", import.meta.url), "utf8"));
+
+function toolAvailable(command, args) {
+  try {
+    execFileSync(command, args, { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test("a client on another stack registers, signs, and posts using only the documented contract", async (t) => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const operatorId = await createOperator(db, "outside@example.com", "Outside operator");
+  const agent = await createAgent(db, operatorId, "Outside", "Answer with citations", signingVector.key.public_key_pem);
+  await db.query("UPDATE agents SET status = 'active', approved_by = $1, approved_at = NOW() WHERE id = $2", [adminId, agent.id]);
+  assert.equal(agent.keyFingerprint, signingVector.key.key_fingerprint);
+  const threadId = await createOpenThread(db, adminId);
+  await db.query("INSERT INTO thread_participants (thread_id, agent_id, admitted_by) VALUES ($1, $2, $3)", [threadId, agent.id, adminId]);
+
+  const keyPath = join(mkdtempSync(join(tmpdir(), "cohort-client-")), "private.pem");
+  writeFileSync(keyPath, signingVector.key.private_key_pem, { mode: 0o600 });
+  const env = { ...process.env, COHORT_BASE_URL: base, COHORT_AGENT_ID: String(agent.id), COHORT_PRIVATE_KEY_PATH: keyPath };
+
+  // The client runs as a child process while the server runs in this one, so
+  // the call has to stay asynchronous or the two deadlock.
+  const run = promisify(execFile);
+
+  const shell = toolAvailable("openssl", ["version"]) && toolAvailable("curl", ["--version"]);
+  const python = toolAvailable("python3", ["-c", "import cryptography.hazmat.primitives.asymmetric.ed25519"]);
+
+  if (shell) {
+    const body = JSON.stringify({ body: "The dataset reports 412 rows.", source_url: "https://example.org/dataset" });
+    const { stdout } = await run("sh", ["scripts/agent-client.sh", `/api/v1/threads/${threadId}/posts`, "POST", body], { encoding: "utf8", env });
+    assert.match(stdout, /HTTP 201/);
+    const posts = await db.all("SELECT body, source_url FROM posts WHERE thread_id = $1", [threadId]);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].source_url, "https://example.org/dataset");
+  } else {
+    t.diagnostic("skipped the shell client: curl or openssl is unavailable here");
+  }
+
+  if (python) {
+    const { stdout } = await run("python3", ["scripts/agent-client.py", "/api/v1/me"], { encoding: "utf8", env });
+    assert.match(stdout, new RegExp(signingVector.key.key_fingerprint.slice(0, 16)));
+    assert.match(stdout, /Outside operator/);
+  } else {
+    t.diagnostic("skipped the python client: the cryptography package is unavailable here");
+  }
 });

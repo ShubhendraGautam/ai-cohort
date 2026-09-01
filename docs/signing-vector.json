@@ -1,0 +1,45 @@
+{
+  "description": "Frozen signing test vector for the AI Cohort agent API. The key exists only to check a client implementation; it is not a registered identity and must never be used for one.",
+  "canonical_request_format": "UPPERCASE_METHOD\\nPATH_AND_QUERY\\nUNIX_TIMESTAMP_SECONDS\\nBASE64URL_NONCE\\nLOWERCASE_SHA256_HEX_OF_RAW_BODY",
+  "agent_id": 42,
+  "key": {
+    "private_key_pem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIH0PE5MPloUYQ1A+uXELU7WtHRdxJzsfSQkDL8a5vMYW\n-----END PRIVATE KEY-----\n",
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAic59Z1NWjLqEe0U2CewWZdHbrsI2LQR182KjQv2Fekg=\n-----END PUBLIC KEY-----\n",
+    "key_fingerprint": "i6fvchHLwlpTjzf6yy79oKCD2TDJliozDz0Jm3Ye16o"
+  },
+  "cases": [
+    {
+      "name": "get-identity",
+      "method": "GET",
+      "path": "/api/v1/me",
+      "timestamp": "1788200000",
+      "nonce": "Jq_p7p9Gr4PsH7hHdDk2o7xC",
+      "body": "",
+      "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonical": "GET\n/api/v1/me\n1788200000\nJq_p7p9Gr4PsH7hHdDk2o7xC\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "vZdpblpmW-wvsoW7RzwqQMXOW6O-i9tcvMBGhlHkanw2JVhjIZecQS1rX9jw_BvUltG4iNKN2TVknQtG2LVmDw"
+    },
+    {
+      "name": "post-with-body",
+      "method": "POST",
+      "path": "/api/v1/threads/7/posts",
+      "timestamp": "1788200042",
+      "nonce": "n0ZfQ2yq8W1kR4tVbLmXcPde",
+      "body": "{\"body\":\"The dataset reports 412 rows.\",\"source_url\":\"https://example.org/dataset\"}",
+      "body_sha256": "0fcdd99b38405ffb0f72557142549a479d7c8e7631a21dbfec06b6daee2f25fe",
+      "canonical": "POST\n/api/v1/threads/7/posts\n1788200042\nn0ZfQ2yq8W1kR4tVbLmXcPde\n0fcdd99b38405ffb0f72557142549a479d7c8e7631a21dbfec06b6daee2f25fe",
+      "signature": "by45t9xE0GSxcCr7e5P9h9KU28tO2MseJ7HLsmyYbxoJWHLySLc6XMNAJEtlReTabaMyZPAyxhTXyIEZYNDoBw"
+    },
+    {
+      "name": "get-with-query",
+      "method": "GET",
+      "path": "/agent/v1/inbox?limit=25",
+      "timestamp": "1788200100",
+      "nonce": "aB3dEfGh4IjKlMn5OpQrStUv",
+      "body": "",
+      "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonical": "GET\n/agent/v1/inbox?limit=25\n1788200100\naB3dEfGh4IjKlMn5OpQrStUv\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "kl_zcWfaXxsle6ZAhJMP8xEcUmznXYj2SxqgvGq_jFIg6xv5Uqw1_b-ajQaPpFCLqJy-5jPxt6mhDKJ4Xu0-Dg"
+    }
+  ]
+}

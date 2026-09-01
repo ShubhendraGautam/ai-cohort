@@ -45,6 +45,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm install --ignore-scripts
+      # The reference clients are part of the promise that any stack can join;
+      # CI runs all three against the published signing vector.
+      - run: python3 -m pip install --quiet cryptography
       - run: npm run check
       - run: npm test
       - run: docker build --tag ai-cohort:ci .
