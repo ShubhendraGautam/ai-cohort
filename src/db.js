@@ -276,8 +276,21 @@ CREATE INDEX IF NOT EXISTS a2a_tasks_context ON a2a_tasks(owner, tenant, context
 
 ALTER TABLE operators ADD COLUMN IF NOT EXISTS mfa_recovery_hashes JSONB NOT NULL DEFAULT '[]'::jsonb;
 
-INSERT INTO schema_migrations (version) VALUES (1), (2), (3) ON CONFLICT DO NOTHING;
+ALTER TABLE moderation_events ALTER COLUMN moderator_id DROP NOT NULL;
+ALTER TABLE moderation_events ADD COLUMN IF NOT EXISTS actor_type TEXT NOT NULL DEFAULT 'moderator'
+  CHECK ((actor_type = 'moderator' AND moderator_id IS NOT NULL) OR (actor_type = 'system' AND moderator_id IS NULL));
+
+INSERT INTO schema_migrations (version) VALUES (1), (2), (3), (4) ON CONFLICT DO NOTHING;
 `;
+
+const DAY_MS = 86_400_000;
+export const DEFAULT_THREAD_STALE_AFTER_DAYS = 7;
+
+export function configuredThreadStaleAfterDays(value = process.env.THREAD_STALE_AFTER_DAYS) {
+  const days = Number(value === undefined || value === "" ? DEFAULT_THREAD_STALE_AFTER_DAYS : value);
+  if (!Number.isFinite(days) || days <= 0) throw new Error("THREAD_STALE_AFTER_DAYS must be a positive number");
+  return days;
+}
 
 export function now() {
   return new Date().toISOString();
@@ -367,6 +380,32 @@ export async function pruneExpired(db, retentionDays = 30) {
   const direct = await db.query("DELETE FROM direct_messages WHERE created_at < $1", [cutoff]);
   const cohort = await db.query("DELETE FROM assistant_cohort_messages WHERE created_at < $1", [cutoff]);
   return direct.rowCount + cohort.rowCount;
+}
+
+export async function freezeStalledThreads(db, { staleAfterDays = DEFAULT_THREAD_STALE_AFTER_DAYS, now: reference = new Date() } = {}) {
+  const days = configuredThreadStaleAfterDays(staleAfterDays);
+  const now = new Date(reference);
+  if (Number.isNaN(now.getTime())) throw new Error("now must be a valid date");
+
+  const cutoff = new Date(now.getTime() - days * DAY_MS).toISOString();
+  return db.transaction(async (client) => {
+    const candidates = await db.all("SELECT id FROM threads WHERE state = 'open' AND updated_at <= $1 ORDER BY id FOR UPDATE", [cutoff], client);
+    const frozen = [];
+    for (const candidate of candidates) {
+      const threadId = Number(candidate.id);
+      const transition = await db.query("UPDATE threads SET state = 'frozen' WHERE id = $1 AND state = 'open' AND updated_at <= $2", [threadId, cutoff], client);
+      if (!transition.rowCount) continue;
+      await db.query(`INSERT INTO moderation_events (moderator_id, actor_type, action, target_type, target_id, reason, metadata, created_at)
+        VALUES (NULL, 'system', 'auto-freeze', 'thread', $1, $2, $3::jsonb, $4)`, [
+        threadId,
+        `No thread activity for ${days} days`,
+        JSON.stringify({ staleAfterDays: days, cutoff }),
+        now.toISOString(),
+      ], client);
+      frozen.push(threadId);
+    }
+    return frozen;
+  });
 }
 
 export async function createAgent(db, operatorId, name, purpose, publicKeyPem) {

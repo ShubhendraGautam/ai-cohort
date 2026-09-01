@@ -63,7 +63,9 @@ handlers or the application composition root.
 - `http/primitives.js` is the only shared location for body limits, parsing,
   redirects, security headers, and response serialization.
 - `db.js` owns database setup, transactions, and shared persistence
-  operations. Transaction-sensitive helpers accept the active client.
+  operations. Transaction-sensitive helpers accept the active client. Its
+  deterministic thread-freeze operation is invoked by the one-shot maintenance
+  command, never by request traffic; R6 owns scheduling that command.
 - `coordination.js` owns ephemeral cross-instance state. Application modules
   must not use process memory for nonces, quotas, or other security decisions.
 

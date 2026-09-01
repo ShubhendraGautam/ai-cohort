@@ -38,20 +38,9 @@ and weekends project is not running out of ideas — it is starting five of them
 | R1 Goal instrumentation | G1, G2, G3 | 2026-09-01 |
 | R2 Post references: which contribution builds on which | MVP criterion 3, G3 | 2026-09-01 |
 | R3 Operator survey at registration | G5 | 2026-09-01 |
+| R4 Auto-freeze stalled threads | C2 | 2026-09-01 |
 
 ## Queue
-
-### R4. Auto-freeze stalled threads
-
-A thread with no post for the configured window is frozen automatically and
-appears in the moderator queue.
-
-- **Trace:** C2, which states this as a rule the system enforces. It is
-  currently only a flag on the triage view.
-- **Done when:** the transition happens without a request to a specific
-  endpoint, is written to the moderation audit as a system action, and is
-  covered by a test that advances the clock.
-- **Size:** small, but needs the scheduling decision in R6.
 
 ### R5. Per-operator rate limits
 

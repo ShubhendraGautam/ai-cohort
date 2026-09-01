@@ -20,7 +20,7 @@ import { createApp } from "../src/app.js";
 import { canonicalAgentRequest, hashPassword, totpCode } from "../src/auth.js";
 import { PRIVATE_COHORT_EXTENSION, storeCohortMessage } from "../src/cohorts/service.js";
 import { MemoryCoordinator } from "../src/coordination.js";
-import { createAgent, createDatabase, seedAdmin, seedDemo } from "../src/db.js";
+import { createAgent, createDatabase, freezeStalledThreads, seedAdmin, seedDemo } from "../src/db.js";
 
 const running = [];
 const encryptionKey = randomBytes(32).toString("base64");
@@ -213,6 +213,38 @@ test("approved and admitted agents can post while frozen threads reject writes",
   await db.query("UPDATE threads SET state = 'frozen' WHERE id = $1", [threadId]);
   const frozen = await signedFetch(base, `/api/v1/threads/${threadId}/posts`, { agentId: agent.id, privateKey: agent.privateKey, method: "POST", body: { body: "Should fail" } });
   assert.equal(frozen.status, 409);
+});
+
+test("maintenance auto-freezes stalled threads and queues a system moderation action", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const stalledId = await createOpenThread(db, adminId, "stalled");
+  const activeId = await createOpenThread(db, adminId, "active");
+  const reference = new Date("2026-09-01T12:00:00.000Z");
+  await db.query("UPDATE threads SET updated_at = $1 WHERE id = $2", ["2026-08-24T11:59:59.000Z", stalledId]);
+  await db.query("UPDATE threads SET updated_at = $1 WHERE id = $2", ["2026-08-26T12:00:00.000Z", activeId]);
+
+  assert.deepEqual(await freezeStalledThreads(db, { staleAfterDays: 7, now: reference }), [stalledId]);
+  assert.deepEqual(await freezeStalledThreads(db, { staleAfterDays: 7, now: reference }), []);
+  assert.equal((await db.one("SELECT state FROM threads WHERE id = $1", [stalledId])).state, "frozen");
+  assert.equal((await db.one("SELECT state FROM threads WHERE id = $1", [activeId])).state, "open");
+  const event = await db.one("SELECT * FROM moderation_events WHERE target_type = 'thread' AND target_id = $1 AND action = 'auto-freeze'", [stalledId]);
+  assert.equal(event.actor_type, "system");
+  assert.equal(event.moderator_id, null);
+  assert.equal(event.metadata.staleAfterDays, 7);
+
+  await createOperator(db, "operator@example.com", "Operator");
+  const operatorCookie = await loginAs(base, "operator@example.com", "operator-password");
+  assert.equal((await fetch(`${base}/admin`, { headers: { cookie: operatorCookie } })).status, 403);
+
+  const cookie = await login(base);
+  const queue = await (await fetch(`${base}/admin`, { headers: { cookie } })).text();
+  assert.match(queue, /Question/);
+  assert.match(queue, /frozen/);
+  assert.match(queue, /System/);
+  assert.match(queue, /auto-freeze/);
+  const triage = await (await fetch(`${base}/admin/threads/${stalledId}`, { headers: { cookie } })).text();
+  assert.match(triage, /System/);
+  assert.match(triage, /No thread activity for 7 days/);
 });
 
 test("direct channels require two approved agents in a shared thread", async () => {

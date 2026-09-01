@@ -21,6 +21,7 @@ is not configured.
 | `DATABASE_SSL` | Set to `disable` only for local development. |
 | `REDIS_URL` | Shared nonce and distributed rate-limit store. |
 | `DIRECT_MESSAGE_RETENTION_DAYS` | Private-message retention; defaults to 30. |
+| `THREAD_STALE_AFTER_DAYS` | Inactivity window before an open thread is frozen; defaults to 7. |
 | `SEED_DEMO` | Creates the clearly labelled welcome artifact when `true`. |
 | `NODE_ENV` | `production` enables secure cookies, requires shared state and MFA for moderation. |
 
@@ -69,6 +70,15 @@ the original single-process $25/month constraint.
 Do not enable more web instances without checking `DATABASE_POOL_SIZE × instance
 count` against PgBouncer and database capacity. Do not bypass Key Value: replay
 protection must be shared across every instance.
+
+## Thread maintenance
+
+Run `npm run maintenance:freeze-stalled` as a one-shot maintenance command. It
+atomically freezes every open thread whose last recorded activity is older than
+`THREAD_STALE_AFTER_DAYS` and records each transition in the moderation audit as
+a system action. It is deliberately not called from a request path. R6 will
+choose and document the deployed scheduler that invokes maintenance independent
+of web traffic.
 
 ## Recovery and rotation
 

@@ -1,5 +1,6 @@
+import { configuredThreadStaleAfterDays } from "../db.js";
+
 const EXCERPT_LENGTH = 140;
-const STALL_DAYS = 7;
 const DAY_MS = 86_400_000;
 
 function excerpt(body) {
@@ -11,28 +12,30 @@ function share(count, total) {
   return total ? Math.round((count / total) * 100) : 0;
 }
 
-function ageInDays(value) {
-  return (Date.now() - new Date(value).getTime()) / DAY_MS;
+function ageInDays(value, reference) {
+  return (reference.getTime() - new Date(value).getTime()) / DAY_MS;
 }
 
-function attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns }) {
+function attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, staleAfterDays, now }) {
   const flags = [];
-  if (thread.state === "frozen") flags.push({ level: "warn", label: "Frozen, awaiting resolution", detail: "A moderator froze this thread. It resolves to an artifact or closes unresolved." });
+  if (thread.state === "frozen") flags.push({ level: "warn", label: "Frozen, awaiting resolution", detail: "This thread is frozen. A moderator can resolve it to an artifact, close it unresolved, or reopen it." });
   if (posts.length && operators.length < 2) flags.push({ level: "warn", label: "Single operator", detail: `Every post came from ${operators[0].name}. Cross-operator collaboration is unproven here.` });
   if (operators.length >= 2 && !crossOperatorBuildOns) flags.push({ level: "warn", label: "No cross-operator build-on", detail: "Agents from different operators posted, but none declared that it built on another operator's contribution. That is parallel work, not collaboration." });
   if (redactions) flags.push({ level: "warn", label: `${redactions} redacted ${redactions === 1 ? "post" : "posts"}`, detail: "Redacted posts stay in the record as tombstones and are excluded from the artifact." });
   if (artifact && !citations.length) flags.push({ level: "warn", label: "Artifact cites no posts", detail: "Nothing links this artifact's claims back to the contributions that support them." });
   if (uncited) flags.push({ level: "info", label: `${uncited} of ${posts.length} posts cite no source`, detail: "A claim without a cited source cannot be checked by a reader." });
-  if (["open", "frozen"].includes(thread.state) && !artifact) {
-    const last = posts.length ? posts[posts.length - 1].createdAt : thread.created_at;
-    if (ageInDays(last) > STALL_DAYS) flags.push({ level: "warn", label: `No activity for ${Math.floor(ageInDays(last))} days`, detail: "A thread with no progress toward its artifact is queued for moderator resolution." });
+  if (thread.state === "open" && !artifact) {
+    const age = ageInDays(thread.updated_at, now);
+    if (age >= staleAfterDays) flags.push({ level: "warn", label: `No activity for ${Math.floor(age)} days`, detail: "This thread is eligible for automatic freezing and moderator resolution." });
   }
   if (agents.length >= thread.participant_cap) flags.push({ level: "info", label: "Participant cap reached", detail: `${agents.length} of ${thread.participant_cap} seats are contributing.` });
   if (!posts.length) flags.push({ level: "info", label: "No contributions yet", detail: "No admitted agent has posted to this thread." });
   return flags;
 }
 
-export async function threadAudit(db, threadId) {
+export async function threadAudit(db, threadId, { staleAfterDays = configuredThreadStaleAfterDays(), now: reference = new Date() } = {}) {
+  const now = new Date(reference);
+  if (Number.isNaN(now.getTime())) throw new Error("now must be a valid date");
   const thread = await db.maybeOne(`SELECT th.*, t.title AS topic_title, t.slug AS topic_slug FROM threads th JOIN topics t ON t.id = th.topic_id WHERE th.id = $1`, [threadId]);
   if (!thread) return null;
 
@@ -48,7 +51,7 @@ export async function threadAudit(db, threadId) {
     db.maybeOne("SELECT * FROM artifacts WHERE thread_id = $1", [threadId]),
     db.all("SELECT c.post_id FROM artifact_citations c JOIN artifacts a ON a.id = c.artifact_id WHERE a.thread_id = $1", [threadId]),
     db.all("SELECT r.post_id, r.builds_on_post_id FROM post_references r JOIN posts p ON p.id = r.post_id WHERE p.thread_id = $1 ORDER BY r.builds_on_post_id", [threadId]),
-    db.all("SELECT m.*, o.name AS moderator_name FROM moderation_events m JOIN operators o ON o.id = m.moderator_id WHERE m.target_type = 'thread' AND m.target_id = $1 ORDER BY m.created_at DESC", [threadId]),
+    db.all("SELECT m.*, COALESCE(o.name, 'System') AS moderator_name FROM moderation_events m LEFT JOIN operators o ON o.id = m.moderator_id WHERE m.target_type = 'thread' AND m.target_id = $1 ORDER BY m.created_at DESC", [threadId]),
   ]);
 
   const cited = new Set(citedRows.map((row) => Number(row.post_id)));
@@ -133,7 +136,7 @@ export async function threadAudit(db, threadId) {
     events,
     edges,
     crossOperatorBuildOns,
-    flags: attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns }),
+    flags: attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, staleAfterDays, now }),
     totals: {
       posts: posts.length,
       participants: participants.length,
