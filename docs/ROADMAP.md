@@ -147,6 +147,10 @@ goal or a non-goal, so each requires an ADR first.
 Park discoveries here with a date. Do not fix them in the change that found
 them.
 
+- **2026-09-01 —** `coord.js` records the files an agent declares but never
+  checks them against what the branch actually changed, so a claim is honoured
+  by convention rather than enforced. A `coord.js check` diffing the branch
+  against the declared list would make it real.
 - **2026-09-01 —** R2 removed the operator-alternation count from the thread
   audit. Declared references replaced it, and keeping both invited a reader to
   mistake alternation for collaboration. Noted in ADR 0004's consequences.

@@ -89,6 +89,11 @@ function queueFromRoadmap() {
   return [...readFileSync(path, "utf8").matchAll(/^### (R\d+)\.\s*(.+)$/gm)].map((match) => ({ id: match[1], title: match[2].trim() }));
 }
 
+// Files both agents need on essentially every item. Locking one of these to a
+// single claim serializes the work it was meant to parallelize, so a claim
+// never takes them; the rule for editing them lives in docs/COORDINATION.md.
+const SHARED = new Set(["src/db.js", "test/app.test.js", "docs/API.md", "docs/CODEBASE.md", "docs/ROADMAP.md"]);
+
 function overlapping(files, claims) {
   const declared = new Map();
   for (const claim of claims) {
@@ -167,7 +172,10 @@ if (command === "status") {
   if (inboxes.length) console.log(`\nunread: ${inboxes.map((name) => `${name}=${pending(name)}`).join("  ")}`);
 } else if (command === "claim") {
   if (!target || !agent) fail("usage: claim <id> --agent <name> [--branch <branch>] [--files a,b]");
-  const files = flags.files ? String(flags.files).split(",").map((file) => file.trim()).filter(Boolean) : [];
+  const declared = flags.files ? String(flags.files).split(",").map((file) => file.trim()).filter(Boolean) : [];
+  const shared = declared.filter((file) => SHARED.has(file));
+  const files = declared.filter((file) => !SHARED.has(file));
+  if (shared.length) console.log(`Not locking ${shared.join(", ")}: both agents need these on nearly every item. Append only, rebase early, and announce the hunk.`);
   const conflict = overlapping(files, readClaims());
   if (conflict) fail(`Refused: ${conflict.file} overlaps ${conflict.other}, already claimed by ${conflict.claim.agent} for ${conflict.claim.id}`);
   const record = { agent, branch: flags.branch ? String(flags.branch) : null, files, state: "claimed", claimedAt: new Date().toISOString() };

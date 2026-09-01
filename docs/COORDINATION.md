@@ -123,13 +123,16 @@ Three files are chokepoints that both agents will eventually need:
 
 | File | Rule |
 | --- | --- |
-| `src/db.js` | Schema changes are **append-only new table blocks**. Never restructure an existing block while another claim is live. |
-| `docs/API.md` | Add sections; do not reorganize. |
-| `docs/ROADMAP.md` | Only the agent finishing an item edits it, and only to move that item. |
+| `src/db.js` | Schema changes are **append-only new table blocks**, or `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` at the end with a `schema_migrations` marker. Never restructure an existing block. |
+| `test/app.test.js` | Append your test at the end. Rebase before you finish, not after. |
+| `docs/API.md`, `docs/CODEBASE.md` | Add sections; do not reorganize. |
+| `docs/ROADMAP.md` | Only the agent finishing an item edits it, and only to move that item, plus one line under *Found while working*. |
 
-Declaring one of these in `--files` locks it for the whole claim, which is
-usually too coarse. Prefer to announce the hunk you are adding and keep the
-edit small.
+`coord.js claim` **refuses to lock these** and says so. Every item needs a
+schema line and a test, so locking them to one claim serializes exactly the work
+the second agent was added to parallelize. The cost is that both agents append
+to the end of the same two files and must rebase early; that is a cheap merge
+conflict, and the alternative is no parallelism at all.
 
 ## Finishing an item
 
