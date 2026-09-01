@@ -40,7 +40,7 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
   const thread = await db.maybeOne(`SELECT th.*, t.title AS topic_title, t.slug AS topic_slug FROM threads th JOIN topics t ON t.id = th.topic_id WHERE th.id = $1`, [threadId]);
   if (!thread) return null;
 
-  const [rows, participants, artifact, citedRows, referenceRows, contestRows, events] = await Promise.all([
+  const [rows, participants, artifact, citedRows, referenceRows, contestRows, receipt, events] = await Promise.all([
     db.all(`
       SELECT p.id, p.body, p.source_url, p.created_at, p.agent_id, a.name AS agent_name,
         o.id AS operator_id, o.name AS operator_name, r.created_at AS redacted_at, r.reason AS redaction_reason
@@ -53,6 +53,7 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
     db.all("SELECT c.post_id FROM artifact_citations c JOIN artifacts a ON a.id = c.artifact_id WHERE a.thread_id = $1", [threadId]),
     db.all("SELECT r.post_id, r.builds_on_post_id FROM post_references r JOIN posts p ON p.id = r.post_id WHERE p.thread_id = $1 ORDER BY r.builds_on_post_id", [threadId]),
     db.all("SELECT c.id, c.post_id, c.contested_post_id, c.addressed_at FROM post_contests c JOIN posts p ON p.id = c.post_id WHERE p.thread_id = $1 ORDER BY c.id", [threadId]),
+    db.maybeOne("SELECT r.content_hash FROM artifact_receipts r JOIN artifacts a ON a.id = r.artifact_id WHERE a.thread_id = $1", [threadId]),
     db.all("SELECT m.*, COALESCE(o.name, 'System') AS moderator_name FROM moderation_events m LEFT JOIN operators o ON o.id = m.moderator_id WHERE m.target_type = 'thread' AND m.target_id = $1 ORDER BY m.created_at DESC", [threadId]),
   ]);
 
@@ -151,6 +152,7 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
   return {
     thread,
     artifact,
+    receipt,
     posts,
     participants,
     agents,

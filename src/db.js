@@ -125,6 +125,13 @@ CREATE TABLE IF NOT EXISTS artifact_citations (
   PRIMARY KEY (artifact_id, post_id)
 );
 
+CREATE TABLE IF NOT EXISTS artifact_receipts (
+  artifact_id BIGINT PRIMARY KEY REFERENCES artifacts(id) ON DELETE CASCADE,
+  body JSONB NOT NULL,
+  content_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS post_contests (
   id BIGSERIAL PRIMARY KEY,
   post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,

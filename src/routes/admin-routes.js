@@ -6,6 +6,7 @@ import { instrumentationPage } from "../pages/instrumentation-page.js";
 import { triagePage } from "../pages/triage-page.js";
 import { closeCohortsForOperator } from "../cohorts/service.js";
 import { assertAdmin, assertCsrf } from "../security/operator-auth.js";
+import { buildArtifactReceipt, receiptDigest } from "../threads/receipt.js";
 
 // Which standing objections this artifact answers. An objection left unticked
 // stays standing and is published beside the artifact, so resolving a thread
@@ -124,6 +125,8 @@ export async function handleAdminRoutes(context) {
       const artifact = await db.one("INSERT INTO artifacts (thread_id, title, body, created_by) VALUES ($1, $2, $3, $4) RETURNING id", [threadId, required(body.title, "Artifact title", 180), required(body.body, "Artifact body", 20_000), operator.id], client);
       for (const postId of citations) await db.query("INSERT INTO artifact_citations (artifact_id, post_id) VALUES ($1, $2)", [artifact.id, postId], client);
       for (const contestId of addressed) await db.query("UPDATE post_contests SET addressed_by = $1, addressed_at = NOW() WHERE id = $2", [artifact.id, contestId], client);
+      const receipt = await buildArtifactReceipt(db, threadId, artifact.id, client);
+      await db.query("INSERT INTO artifact_receipts (artifact_id, body, content_hash) VALUES ($1, $2::jsonb, $3)", [artifact.id, JSON.stringify(receipt), receiptDigest(receipt)], client);
       await db.query("UPDATE threads SET state = 'resolved', updated_at = NOW() WHERE id = $1", [threadId], client);
       await audit(db, operator.id, "resolve", "thread", threadId, null, { citations, addressed }, client);
     });

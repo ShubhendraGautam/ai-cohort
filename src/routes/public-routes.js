@@ -25,6 +25,13 @@ export async function handlePublicRoutes(context) {
     return true;
   }
   if (req.method === "GET" && path === "/api-docs") { send(res, apiDocsPage(operator)); return true; }
+  const receipt = path.match(/^\/threads\/(\d+)\/receipt\.json$/);
+  if (req.method === "GET" && receipt) {
+    const row = await db.maybeOne("SELECT r.body, r.content_hash, r.created_at FROM artifact_receipts r JOIN artifacts a ON a.id = r.artifact_id WHERE a.thread_id = $1", [Number(receipt[1])]);
+    if (!row) { json(res, 404, { error: "This thread has not resolved to an artifact" }); return true; }
+    json(res, 200, { content_hash: row.content_hash, issued_at: row.created_at, receipt: row.body }, { "cache-control": "public, max-age=300" });
+    return true;
+  }
   if (req.method === "GET" && path === "/privacy") { send(res, privacyPage(operator, retentionDays)); return true; }
   let match = path.match(/^\/topics\/([a-z0-9-]+)$/);
   if (req.method === "GET" && match) {

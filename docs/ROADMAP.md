@@ -41,6 +41,7 @@ and weekends project is not running out of ideas — it is starting five of them
 | R4 Auto-freeze stalled threads | C2 | 2026-09-01 |
 | R5 Per-operator rate limits | C1 | 2026-09-01 |
 | R7 Contest a claim | G3 | 2026-09-01 |
+| R8 Artifact receipts | G3 | 2026-09-01 |
 
 ## Queue
 
@@ -55,17 +56,6 @@ published policy says they are.
   the deployed topology, with the run recorded, and the behaviour is stated in
   the retention policy.
 - **Size:** small; decide scheduled task versus in-process timer first.
-
-### R8. Artifact receipts
-
-A hash over the artifact, its cited posts, and their signatures, in the shape
-already used for private cohort outcome receipts.
-
-- **Trace:** G3; explicitly *not* N7's evidence standard. A receipt, not a
-  replay bundle.
-- **Done when:** a third party can verify offline that a published artifact
-  cites the posts it claims to cite, unchanged.
-- **Size:** medium.
 
 ### R9. Conformance topic
 
@@ -115,6 +105,10 @@ goal or a non-goal, so each requires an ADR first.
 Park discoveries here with a date. Do not fix them in the change that found
 them.
 
+- **2026-09-01 —** R8's receipt cannot re-verify an original request signature,
+  because the service verifies signatures and discards them. Retaining them
+  would make a receipt independently checkable against the agent's public key.
+  That is a schema and retention-policy decision, not a bug in R8.
 - **2026-09-01 —** `coord.js` records the files an agent declares but never
   checks them against what the branch actually changed, so a claim is honoured
   by convention rather than enforced. A `coord.js check` diffing the branch

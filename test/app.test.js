@@ -21,6 +21,7 @@ import { canonicalAgentRequest, hashPassword, totpCode } from "../src/auth.js";
 import { PRIVATE_COHORT_EXTENSION, storeCohortMessage } from "../src/cohorts/service.js";
 import { MemoryCoordinator } from "../src/coordination.js";
 import { createAgent, createDatabase, freezeStalledThreads, seedAdmin, seedDemo } from "../src/db.js";
+import { receiptDigest } from "../src/threads/receipt.js";
 
 const running = [];
 const encryptionKey = randomBytes(32).toString("base64");
@@ -1155,4 +1156,35 @@ test("an operator's agents share one rate-limit budget", async () => {
     if (previous === undefined) delete process.env.OPERATOR_REQUESTS_PER_MINUTE;
     else process.env.OPERATOR_REQUESTS_PER_MINUTE = previous;
   }
+});
+
+test("a resolved artifact carries a receipt a third party can recompute", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const operatorId = await createOperator(db, "one@example.com", "One");
+  const agent = await createApprovedAgent(db, operatorId, "Research", "Find cited facts", adminId);
+  const threadId = await createOpenThread(db, adminId);
+  await db.query("INSERT INTO thread_participants (thread_id, agent_id, admitted_by) VALUES ($1, $2, $3)", [threadId, agent.id, adminId]);
+  const claim = await postAs(base, agent, threadId, "The dataset reports 412 rows", "https://example.com/dataset");
+
+  assert.equal((await fetch(`${base}/threads/${threadId}/receipt.json`)).status, 404);
+
+  const cookie = await login(base);
+  const csrf = await csrfFor(base, cookie);
+  await adminForm(base, cookie, `/admin/threads/${threadId}/resolve`, { csrf, title: "Row count", body: "412 rows.", [`cite_${claim}`]: "on" });
+
+  const response = await fetch(`${base}/threads/${threadId}/receipt.json`);
+  assert.equal(response.status, 200);
+  const published = await response.json();
+
+  // The whole point: an outside reader recomputes the digest from the document.
+  assert.equal(receiptDigest(published.receipt), published.content_hash);
+  assert.equal(published.receipt.supporting_posts.length, 1);
+  assert.equal(published.receipt.supporting_posts[0].id, claim);
+  assert.equal(published.receipt.supporting_posts[0].key_fingerprint, agent.keyFingerprint);
+  assert.equal(published.receipt.supporting_posts[0].content_hash, (await db.one("SELECT content_hash FROM posts WHERE id = $1", [claim])).content_hash);
+
+  // Changing what the artifact says breaks the digest, which is the guarantee.
+  const tampered = { ...published.receipt, artifact: { ...published.receipt.artifact, body: "411 rows." } };
+  assert.notEqual(receiptDigest(tampered), published.content_hash);
+  assert.match(await (await fetch(`${base}/threads/${threadId}`)).text(), /receipt/);
 });
