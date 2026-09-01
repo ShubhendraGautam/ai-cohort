@@ -289,6 +289,36 @@ if (command === "status") {
     process.exit(0);
   });
   setTimeout(() => { watcher.close(); console.log(`no message within ${timeout / 1000}s`); process.exit(0); }, timeout).unref?.();
+} else if (command === "check") {
+  // Claims were honoured by convention until this existed, and convention lost
+  // twice in one session: once when an agent edited a file it had not declared,
+  // once when two agents edited the same page from different items.
+  if (!agent) fail("usage: check --agent <name> [--base main]");
+  const base = flags.base ? String(flags.base) : "main";
+  let changed = [];
+  try {
+    changed = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], { cwd: root, encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  } catch {
+    fail(`Could not diff against ${base}`);
+  }
+  const live = readClaims().filter((claim) => claim.state === "claimed");
+  const mine = new Set(live.filter((claim) => claim.agent === agent).flatMap((claim) => claim.files || []));
+  const theirs = new Map();
+  for (const claim of live.filter((claim) => claim.agent !== agent)) {
+    for (const file of claim.files || []) theirs.set(file, claim);
+  }
+  const trespass = [];
+  const undeclared = [];
+  for (const file of changed) {
+    if (SHARED.has(file) || mine.has(file)) continue;
+    if (theirs.has(file)) trespass.push([file, theirs.get(file)]);
+    else undeclared.push(file);
+  }
+  for (const [file, claim] of trespass) console.log(`TRESPASS ${file} — declared by ${claim.agent} for ${claim.id}`);
+  for (const file of undeclared) console.log(`UNDECLARED ${file} — add it to a claim, or release and re-claim with it`);
+  if (!trespass.length && !undeclared.length) console.log(`${changed.length} changed file${changed.length === 1 ? "" : "s"}, all declared or shared`);
+  if (trespass.length) process.exit(2);
+  if (undeclared.length) process.exit(1);
 } else if (command === "log") {
   if (!existsSync(logPath)) fail("no events yet");
   const lines = readFileSync(logPath, "utf8").split("\n").filter(Boolean);
@@ -306,5 +336,6 @@ if (command === "status") {
   done <id> --agent A [--note N]                finish; needs an approving review
   send --to B --from A "text" [--re <id>]       message another agent
   read --agent A [--wait] [--all] [--timeout s] read your inbox; --wait blocks
+  check --agent A [--base main]                 do my changes match what I claimed?
   log [--limit N]                               recent coordination events`);
 }
