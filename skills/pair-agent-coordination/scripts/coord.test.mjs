@@ -97,6 +97,9 @@ test("blocks on design questions and records handoff context", () => {
     coord(repo, ["claim", "Q1", "--agent", "alpha", "--branch", "feat/question", "--files", "src/question.js"]);
     coord(repo, ["ask", "Q1", "--agent", "alpha", "--to", "beta", "--question", "Should the result be stored or derived?"]);
     assert.match(coord(repo, ["ready", "Q1", "--agent", "alpha", "--evidence", "scope check and tests pass"], 1), /open question/);
+    assert.match(coord(repo, ["withdraw", "Q1", "--agent", "alpha", "--reason", "The existing contract already decides the question"]), /history preserved/);
+    assert.match(coord(repo, ["read", "--agent", "beta"]), /QUESTION WITHDRAWN on Q1/);
+    coord(repo, ["ask", "Q1", "--agent", "alpha", "--to", "beta", "--question", "Should the result still be derived?"]);
     coord(repo, ["answer", "Q1", "--agent", "beta", "--text", "Derive it because the source record is authoritative"]);
     coord(repo, ["handoff", "Q1", "--agent", "alpha", "--to", "beta", "--note", "No code committed; decision recorded; implementation and tests remain"]);
     assert.match(coord(repo, ["status"]), /Q1\s+claimed\s+beta/);

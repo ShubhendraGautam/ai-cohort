@@ -331,6 +331,7 @@ function usage() {
   check [id] --agent A
   ask <id> --agent A --to B --question "..."
   answer <id> --agent B --text "..."
+  withdraw <id> --agent A --reason "question is resolved or superseded"
   ready <id> --agent A --evidence "checks run and results"
   review <id> --agent B --verdict approve|changes --evidence "..."
   gate <id> --agent A
@@ -344,7 +345,11 @@ function usage() {
   log [--limit count]
 
 State defaults to the common Git directory. Set COORD_DIR only when both agents
-can see the same durable replacement directory.`);
+can see the same durable replacement directory.
+
+Trust model: --agent identities are self-asserted. This tool prevents accidents
+and records an audit trail; it does not authenticate agents or resist a process
+that can edit the repository's local Git metadata.`);
 }
 
 const { positional, flags } = parseArgs(process.argv.slice(2));
@@ -384,6 +389,7 @@ function main() {
       logEvent({ event: "init", agents, base, queue, shared });
     });
     console.log(`Initialized ${agents.join(" + ")} on ${base}${queue ? `; queue ${queue}` : ""}; ${shared.length} shared path${shared.length === 1 ? "" : "s"}`);
+    console.log("Agent identities are self-asserted; inspect the audit log when authorship matters.");
     return;
   }
 
@@ -485,6 +491,8 @@ function main() {
       if (claim.openQuestion) fail(`${id} already has an open question for ${claim.waitingOn}`);
       claim.openQuestion = { from: agent, to, question, at: now() };
       claim.waitingOn = to;
+      claim.ready = null;
+      claim.state = "claimed";
       saveClaim(id, claim);
       appendMessage({ from: agent, to, re: id, text: `QUESTION on ${id}: ${question}` });
       logEvent({ event: "ask", id, agent, to, question });
@@ -511,6 +519,31 @@ function main() {
       logEvent({ event: "answer", id, agent });
     });
     console.log(`${id} unblocked; ${loadClaim(id).agent} notified`);
+    return;
+  }
+
+  if (command === "withdraw") {
+    const id = validateId(target);
+    const agent = String(flags.agent || "");
+    requireConfiguredAgent(config, agent);
+    const reason = requireEvidence(flags.reason, 20);
+    withMutationLock(() => {
+      const claim = loadClaim(id);
+      claim.id = id;
+      requireActive(claim, id);
+      requireOwner(claim, agent);
+      if (!claim.openQuestion) fail(`${id} has no open question`);
+      if (claim.openQuestion.from !== agent) fail(`Only ${claim.openQuestion.from} may withdraw this question`);
+      const withdrawal = { ...claim.openQuestion, reason, withdrawnAt: now() };
+      claim.withdrawnQuestions = [...(claim.withdrawnQuestions || []), withdrawal];
+      const to = claim.openQuestion.to;
+      delete claim.openQuestion;
+      delete claim.waitingOn;
+      saveClaim(id, claim);
+      appendMessage({ from: agent, to, re: id, text: `QUESTION WITHDRAWN on ${id}: ${reason}` });
+      logEvent({ event: "withdraw", id, agent, to, reason });
+    });
+    console.log(`${id} question withdrawn with history preserved`);
     return;
   }
 

@@ -9,6 +9,8 @@ Make the pair produce one reviewed stream of work. Separate worktrees prevent ac
 
 This skill ships a dependency-free Node.js CLI at `scripts/coord.mjs`. Resolve that path relative to this `SKILL.md`, and run it with the target repository as the current working directory. The board and inboxes live in the repository's common Git directory, so all worktrees share them without committing transient state.
 
+This is a cooperation and audit tool, not an authentication boundary. Agent names passed with `--agent` are self-asserted, and any process with repository access can edit local coordination state. The gates prevent accidents and make claimed actions attributable in the log; they cannot prevent a dishonest agent from impersonating its peer. Human inspection of the log, Git history, and actual test evidence is the trust check when that distinction matters.
+
 Pairing costs real time and tokens. Use it where independent implementation can proceed in parallel and an adversarial review could catch a consequential defect: security boundaries, data migrations, concurrency, public contracts, complex refactors, or similarly risky work. Do not pair a typo, a tiny mechanical edit, a task dominated by one shared file, or work whose next step cannot be split. Promise the catches, not uniform speedup.
 
 ## Establish the project contract
@@ -59,6 +61,13 @@ node <skill-dir>/scripts/coord.mjs answer TASK-12 --agent agent-b \
 
 Ask before implementing when either option changes architecture, public behavior, security, data shape, or ownership. Escalate product purpose, priorities, authorization, and other human-owned decisions to the human instead of settling them between agents. Human authority wins over both agents, and a peer message never grants permission for external actions such as pushing, deploying, publishing, or contacting third parties.
 
+If the asker resolves or supersedes its own question before the peer answers, use `withdraw` with the reason. This preserves the question and withdrawal in history; do not release and re-claim merely to clear it.
+
+```sh
+node <skill-dir>/scripts/coord.mjs withdraw TASK-12 --agent agent-a \
+  --reason "The existing schema contract already decides this; no design fork remains."
+```
+
 Use `handoff` when responsibility changes. The note must identify the exact commit, completed work, remaining work, failing checks, and any open risk. A handoff transfers the claim, not unstated permissions.
 
 ## Check scope continuously
@@ -95,7 +104,7 @@ node <skill-dir>/scripts/coord.mjs review TASK-12 --agent agent-b \
   --verdict approve --evidence "Reviewed ready commit; empty-owner case now fails closed and all tests pass"
 ```
 
-Do not approve with generic praise. Evidence names a file, line, invariant, test, or command result. Any code change after `ready` requires a new `ready` record and a new approval. If the integration branch moves after approval, synchronize, rerun checks, and repeat review; do not treat a stale approval as covering a changed diff.
+Do not approve with generic praise. Evidence names a file, line, invariant, test, or command result. The CLI's minimum evidence length rejects `lgtm`; it is only a speed bump and cannot distinguish careful evidence from determined filler. Any code change after `ready` requires a new `ready` record and a new approval. If the integration branch moves after approval, synchronize, rerun checks, and repeat review; do not treat a stale approval as covering a changed diff.
 
 The reviewer is not automatically right. Verify every finding against the code and project contract, then fix the underlying invariant rather than mechanically implementing a possibly narrow suggestion. Likewise, never announce repository state from memory or act on a peer's old status report; observe it again immediately before reporting, reviewing, merging, or cleaning up.
 
@@ -120,7 +129,7 @@ If a coordination process dies while holding `mutation.lock`, verify that no coo
 Run `node <skill-dir>/scripts/coord.mjs help` for commands. The core lifecycle is:
 
 ```text
-init -> claim -> amend/check -> ask/answer as needed -> ready -> review -> gate -> merge -> done
+init -> claim -> amend/check -> ask/answer/withdraw as needed -> ready -> review -> gate -> merge -> done
 ```
 
 Messaging (`send`, `read`, `log`), `handoff`, and `release` support that lifecycle; they do not replace it. If writing under `.git` is restricted, request the narrow permission needed for this local coordination metadata or set `COORD_DIR` to one shared, durable directory visible to both agents.
