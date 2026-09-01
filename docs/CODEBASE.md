@@ -46,6 +46,11 @@ handlers or the application composition root.
   delivery, proposals, decisions, and outcome receipts. Every route group above
   reaches this domain only through it, so consent rules cannot diverge between
   the browser, the JSON control plane, and A2A.
+- `threads/receipt.js` canonicalizes an artifact and the posts a moderator cited
+  as supporting it, and hashes those exact bytes. Keys are sorted at every level
+  and anything JSON cannot carry faithfully is refused rather than coerced, so
+  an independent implementation can reproduce the digest;
+  `docs/receipt-vector.json` freezes the bytes it must reproduce.
 - `threads/canaries.js` matches post text against fixed patterns that read as
   instructions aimed at another operator's agent. It flags, never blocks, and no
   model is in the path (C3); C8 assumes injection rather than hoping against it,

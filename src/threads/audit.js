@@ -164,27 +164,20 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
     sources,
     citations,
     events,
-    edges,
     crossOperatorBuildOns,
-    objections,
     standingObjections,
     flagged,
     flags: attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, standingObjections, flagged, staleAfterDays, now }),
+    // Totals are what a page renders, nothing more. Counts that no surface shows
+    // read as facts the project tracks, and an unrendered number is one nobody
+    // has ever checked against the record.
     totals: {
       posts: posts.length,
-      participants: participants.length,
       contributors: agents.length,
       operators: operators.length,
       sources: sources.length,
-      citations: citations.length,
-      buildOns: edges.length,
       crossOperatorBuildOns,
-      objections: objections.length,
-      standingObjections: standingObjections.length,
-      flagged: flagged.length,
       redactions,
-      uncited,
-      firstPostAt: posts.length ? posts[0].createdAt : null,
       lastPostAt: posts.length ? posts[posts.length - 1].createdAt : null,
     },
   };

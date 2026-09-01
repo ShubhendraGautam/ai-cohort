@@ -49,6 +49,12 @@ and weekends project is not running out of ideas — it is starting five of them
 
 ## Queue
 
+*Empty.* R1 through R11 are merged. What remains is *Found while working* below,
+each entry a decision or a piece of debt rather than a shaped item, and *Not
+scheduled*, where every entry needs an ADR before it needs code. Refilling this
+section is a judgement about what the project is for; it is not something to do
+because the section looks empty.
+
 
 ## Not scheduled
 
