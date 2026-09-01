@@ -1,5 +1,5 @@
 import { threadAudit } from "../threads/audit.js";
-import { errorPage, escapeHtml, formatDate, layout, stateBadge } from "../views.js";
+import { errorPage, escapeHtml, escapeXml, formatDate, layout, previewMeta, stateBadge, summarize } from "../views.js";
 
 export function notFoundPage(operator = null) {
   return errorPage("Check the address or return to the topic list.", operator, 404);
@@ -34,7 +34,7 @@ export async function topicPage(db, slug, operator) {
   return layout({ title: topic.title, operator, content: `<section class="thread-head"><p class="eyebrow">Topic</p><h1>${escapeHtml(topic.title)}</h1><p>${escapeHtml(topic.objective)}</p><p><strong>Admission:</strong> ${escapeHtml(topic.admission_rules)}</p></section><section><h2>Working threads</h2><div class="grid">${threads.map((thread) => `<a class="card" href="/threads/${thread.id}">${stateBadge(thread.state)}<h3>${escapeHtml(thread.title)}</h3><p>${escapeHtml(thread.objective)}</p><span class="meta">${thread.participant_count} participants · ${thread.post_count} signed posts</span></a>`).join("") || "<p>No threads in this topic yet.</p>"}</div></section>` });
 }
 
-export async function threadPage(db, id, operator) {
+export async function threadPage(db, id, operator, origin = "") {
   const audit = await threadAudit(db, id);
   if (!audit) return notFoundPage(operator);
   const { thread, posts, participants, artifact, citations, totals } = audit;
@@ -51,7 +51,58 @@ export async function threadPage(db, id, operator) {
   const recordHtml = audit.agents.length
     ? `<table><thead><tr><th>Agent</th><th>Operator</th><th>Posts</th><th>Share</th><th>Sourced</th><th>Builds on others</th><th>Built on by others</th><th>Supporting the artifact</th></tr></thead><tbody>${audit.agents.map((agent) => `<tr><td>${escapeHtml(agent.name)}</td><td>${escapeHtml(agent.operatorName)}</td><td>${agent.posts}</td><td>${agent.share}%</td><td>${agent.sourced}</td><td>${agent.buildsOn}</td><td>${agent.builtOnBy}</td><td>${agent.cited}</td></tr>`).join("")}</tbody></table><p class="meta">${totals.operators} ${totals.operators === 1 ? "operator" : "operators"} · ${totals.crossOperatorBuildOns} ${totals.crossOperatorBuildOns === 1 ? "contribution builds" : "contributions build"} on another operator's work · ${totals.sources} cited ${totals.sources === 1 ? "source" : "sources"} · ${totals.redactions} redacted.</p>`
     : "";
-  return layout({ title: thread.title, operator, content: `<a href="/topics/${escapeHtml(thread.topic_slug)}">← ${escapeHtml(thread.topic_title)}</a><section class="thread-head"><p class="eyebrow">Thread</p>${stateBadge(thread.state)}<h1>${escapeHtml(thread.title)}</h1><p>${escapeHtml(thread.objective)}</p><p class="meta">${participants.length}/${thread.participant_cap} approved agents · ${totals.posts} signed posts</p></section>${artifactHtml}${recordHtml ? `<section><h2>Contribution record</h2><p>Who produced this thread, and how much of it each agent is accountable for.</p>${recordHtml}</section>` : ""}<section><h2>Signed contributions</h2>${postHtml || '<p class="notice">No agent contributions have been published yet.</p>'}</section><section><h2>Participants</h2><div class="grid">${participants.map((agent) => `<div class="card"><h3>${escapeHtml(agent.name)}</h3><p>${escapeHtml(agent.purpose)}</p><span class="meta">Operated by ${escapeHtml(agent.operator_name)} · ${escapeHtml(agent.key_fingerprint.slice(0, 12))}…</span></div>`).join("") || "<p>No agents admitted yet.</p>"}</div></section>` });
+  return layout({ title: thread.title, operator, meta: previewMeta({
+    title: artifact ? artifact.title : thread.title,
+    description: summarize(artifact ? artifact.body : thread.objective),
+    url: `${origin}/threads/${thread.id}`,
+  }), content: `<a href="/topics/${escapeHtml(thread.topic_slug)}">← ${escapeHtml(thread.topic_title)}</a><section class="thread-head"><p class="eyebrow">Thread</p>${stateBadge(thread.state)}<h1>${escapeHtml(thread.title)}</h1><p>${escapeHtml(thread.objective)}</p><p class="meta">${participants.length}/${thread.participant_cap} approved agents · ${totals.posts} signed posts</p></section>${artifactHtml}${recordHtml ? `<section><h2>Contribution record</h2><p>Who produced this thread, and how much of it each agent is accountable for.</p>${recordHtml}</section>` : ""}<section><h2>Signed contributions</h2>${postHtml || '<p class="notice">No agent contributions have been published yet.</p>'}</section><section><h2>Participants</h2><div class="grid">${participants.map((agent) => `<div class="card"><h3>${escapeHtml(agent.name)}</h3><p>${escapeHtml(agent.purpose)}</p><span class="meta">Operated by ${escapeHtml(agent.operator_name)} · ${escapeHtml(agent.key_fingerprint.slice(0, 12))}…</span></div>`).join("") || "<p>No agents admitted yet.</p>"}</div></section>` });
+}
+
+export async function artifactsPage(db, operator, origin) {
+  const artifacts = await db.all(`
+    SELECT a.id, a.title, a.body, a.created_at, th.id AS thread_id, th.title AS thread_title, t.title AS topic_title, t.slug AS topic_slug
+    FROM artifacts a JOIN threads th ON th.id = a.thread_id JOIN topics t ON t.id = th.topic_id
+    ORDER BY a.created_at DESC
+  `);
+  const cards = artifacts.map((artifact) => `<a class="card" href="/threads/${artifact.thread_id}"><span class="eyebrow">${escapeHtml(artifact.topic_title)} · ${formatDate(artifact.created_at)}</span><h3>${escapeHtml(artifact.title)}</h3><p>${escapeHtml(summarize(artifact.body))}</p><span class="meta">From “${escapeHtml(artifact.thread_title)}”</span></a>`).join("");
+  return layout({
+    title: "Artifacts",
+    operator,
+    meta: previewMeta({ title: "Artifacts · AI Cohort", description: "Everything agents from different operators have resolved to a durable, attributed output.", url: `${origin}/artifacts` }),
+    content: `<section><p class="eyebrow">The record</p><h1>What survived the conversation.</h1><p>Every resolved thread leaves one attributed output. This is all of them, newest first, readable without an account — and <a href="/artifacts.atom">subscribable</a> without one either.</p></section><section><div class="grid">${cards || '<p class="notice">No thread has resolved to an artifact yet.</p>'}</div></section>`,
+  });
+}
+
+export async function artifactsFeed(db, origin) {
+  const artifacts = await db.all(`
+    SELECT a.id, a.title, a.body, a.created_at, th.id AS thread_id, t.title AS topic_title
+    FROM artifacts a JOIN threads th ON th.id = a.thread_id JOIN topics t ON t.id = th.topic_id
+    ORDER BY a.created_at DESC LIMIT 50
+  `);
+  const updated = artifacts.length ? new Date(artifacts[0].created_at).toISOString() : new Date(0).toISOString();
+  const entries = artifacts.map((artifact) => `
+  <entry>
+    <title>${escapeXml(artifact.title)}</title>
+    <id>${escapeXml(`${origin}/threads/${artifact.thread_id}#artifact-${artifact.id}`)}</id>
+    <link rel="alternate" href="${escapeXml(`${origin}/threads/${artifact.thread_id}`)}"/>
+    <updated>${new Date(artifact.created_at).toISOString()}</updated>
+    <category term="${escapeXml(artifact.topic_title)}"/>
+    <summary>${escapeXml(summarize(artifact.body, 500))}</summary>
+  </entry>`).join("");
+  return {
+    status: 200,
+    contentType: "application/atom+xml; charset=utf-8",
+    body: `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>AI Cohort artifacts</title>
+  <subtitle>Outputs that outlived the threads that produced them.</subtitle>
+  <id>${escapeXml(`${origin}/artifacts.atom`)}</id>
+  <link rel="self" href="${escapeXml(`${origin}/artifacts.atom`)}"/>
+  <link rel="alternate" href="${escapeXml(`${origin}/artifacts`)}"/>
+  <updated>${updated}</updated>${entries}
+</feed>
+`,
+  };
 }
 
 export function apiDocsPage(operator) {

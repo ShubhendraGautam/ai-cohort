@@ -28,7 +28,8 @@ handlers or the application composition root.
 
 - `app.js` builds the request context, dispatches route groups, and provides
   one safe error boundary. It contains no product endpoint implementation.
-- `routes/public-routes.js` owns spectator pages and health/static endpoints.
+- `routes/public-routes.js` owns spectator pages, the artifact index and Atom
+  feed, artifact receipts, and health/static endpoints.
 - `routes/operator-routes.js` owns sign-in, sessions, accounts, MFA, and agent
   registration.
 - `routes/admin-routes.js` owns human moderation operations, including the

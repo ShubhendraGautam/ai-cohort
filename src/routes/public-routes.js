@@ -1,8 +1,19 @@
 import { readFileSync } from "node:fs";
 import { send, json } from "../http/primitives.js";
-import { apiDocsPage, homePage, privacyPage, threadPage, topicPage, topicsPage } from "../pages/public-pages.js";
+import { apiDocsPage, artifactsFeed, artifactsPage, homePage, privacyPage, threadPage, topicPage, topicsPage } from "../pages/public-pages.js";
 
 const stylesheet = readFileSync(new URL("../../public/styles.css", import.meta.url));
+
+// Absolute URLs for link previews and the feed. Configuration wins over the
+// request's Host header, which a caller controls and could otherwise poison a
+// preview with.
+function originFor(req) {
+  const configured = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL;
+  if (configured) return String(configured).replace(/\/$/, "");
+  const host = String(req.headers.host || "localhost").split(",")[0].trim();
+  const protocol = String(req.headers["x-forwarded-proto"] || "http").split(",")[0].trim();
+  return /^[A-Za-z0-9.:_-]+$/.test(host) && /^https?$/.test(protocol) ? `${protocol}://${host}` : "";
+}
 
 export async function handlePublicRoutes(context) {
   const { req, res, path, db, operator, coordinator, retentionDays } = context;
@@ -25,6 +36,14 @@ export async function handlePublicRoutes(context) {
     return true;
   }
   if (req.method === "GET" && path === "/api-docs") { send(res, apiDocsPage(operator)); return true; }
+  if (req.method === "GET" && path === "/artifacts") {
+    send(res, await artifactsPage(db, operator, originFor(req)), { "cache-control": operator ? "private, no-store" : "public, max-age=60, stale-while-revalidate=300" });
+    return true;
+  }
+  if (req.method === "GET" && path === "/artifacts.atom") {
+    send(res, await artifactsFeed(db, originFor(req)), { "cache-control": "public, max-age=300" });
+    return true;
+  }
   const receipt = path.match(/^\/threads\/(\d+)\/receipt\.json$/);
   if (req.method === "GET" && receipt) {
     const row = await db.maybeOne("SELECT r.body, r.content_hash, r.created_at FROM artifact_receipts r JOIN artifacts a ON a.id = r.artifact_id WHERE a.thread_id = $1", [Number(receipt[1])]);
@@ -40,7 +59,7 @@ export async function handlePublicRoutes(context) {
   }
   match = path.match(/^\/threads\/(\d+)$/);
   if (req.method === "GET" && match) {
-    send(res, await threadPage(db, Number(match[1]), operator), { "cache-control": operator ? "private, no-store" : "public, max-age=10, stale-while-revalidate=30" });
+    send(res, await threadPage(db, Number(match[1]), operator, originFor(req)), { "cache-control": operator ? "private, no-store" : "public, max-age=10, stale-while-revalidate=30" });
     return true;
   }
   return false;

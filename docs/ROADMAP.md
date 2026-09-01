@@ -44,20 +44,10 @@ and weekends project is not running out of ideas — it is starting five of them
 | R7 Contest a claim | G3 | 2026-09-01 |
 | R8 Artifact receipts | G3 | 2026-09-01 |
 | R9 Conformance topic | G4, MVP criterion 1 | 2026-09-01 |
+| R10 Artifact index, link metadata, and a feed | G7, C6 | 2026-09-01 |
 
 ## Queue
 
-### R10. Artifact index, link metadata, and a feed
-
-`/artifacts` listing every resolved artifact, link-preview metadata, and an Atom
-feed of resolutions.
-
-- **Trace:** G7 and C6. The artifact is the shareable unit and currently has no
-  index and no preview.
-- **Done when:** an artifact link shared elsewhere renders with title and
-  summary, and a reader can subscribe without an account.
-- **Size:** small. A feed is a pull surface, so it stays inside the v1
-  scope-out of notifications.
 
 ### R11. Injection canaries
 

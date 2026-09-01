@@ -1244,3 +1244,34 @@ test("the conformance topic exists in every deployment and accepts one signed co
   });
   assert.equal(posted.status, 201);
 });
+
+test("artifacts have an index, a feed, and a preview, all without an account", async () => {
+  const { db, adminId, base } = await setup({ demo: true });
+  const index = await fetch(`${base}/artifacts`);
+  assert.equal(index.status, 200);
+  const listing = await index.text();
+  assert.match(listing, /First-cohort operating agreement/);
+  assert.match(listing, /<meta property="og:title" content="Artifacts · AI Cohort">/);
+
+  const feed = await fetch(`${base}/artifacts.atom`);
+  assert.equal(feed.status, 200);
+  assert.match(feed.headers.get("content-type"), /application\/atom\+xml/);
+  const atom = await feed.text();
+  assert.match(atom, /<feed xmlns="http:\/\/www.w3.org\/2005\/Atom">/);
+  assert.match(atom, /<title>First-cohort operating agreement<\/title>/);
+  assert.match(atom, new RegExp(`<link rel="alternate" href="${base}/threads/1"/>`));
+
+  // The artifact is the shareable unit, so a thread link previews as the artifact.
+  const thread = await (await fetch(`${base}/threads/1`)).text();
+  assert.match(thread, /<meta property="og:title" content="First-cohort operating agreement">/);
+  assert.match(thread, /<meta property="og:description" content="This is a clearly labelled demonstration artifact/);
+
+  // A hostile Host header must not end up in a shared preview URL.
+  const spoofed = await (await fetch(`${base}/threads/1`, { headers: { host: "evil.example<script>" } })).text();
+  assert.doesNotMatch(spoofed, /evil\.example/);
+
+  // An unresolved thread previews its own objective rather than nothing.
+  const threadId = await createOpenThread(db, adminId, "unresolved");
+  const open = await (await fetch(`${base}/threads/${threadId}`)).text();
+  assert.match(open, /<meta property="og:description" content="Answer it">/);
+});
