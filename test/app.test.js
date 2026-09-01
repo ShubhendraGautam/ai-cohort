@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { afterEach, test } from "node:test";
+import { AgentCard, Role } from "@a2a-js/sdk";
+import {
+  ClientFactory,
+  ClientFactoryOptions,
+  createAuthenticatingFetchWithRetry,
+  JsonRpcTransportFactory,
+  ServiceParameters,
+  withA2AExtensions,
+} from "@a2a-js/sdk/client";
 import { newDb } from "pg-mem";
 import { createApp } from "../src/app.js";
 import { canonicalAgentRequest, hashPassword, totpCode } from "../src/auth.js";
+import { PRIVATE_COHORT_EXTENSION, storeCohortMessage } from "../src/cohorts/service.js";
 import { MemoryCoordinator } from "../src/coordination.js";
 import { createAgent, createDatabase, seedAdmin, seedDemo } from "../src/db.js";
 
@@ -46,14 +56,35 @@ afterEach(async () => {
 });
 
 async function login(base, authCode = "") {
+  return loginAs(base, "admin@example.com", "correct-horse-battery", authCode);
+}
+
+async function loginAs(base, email, password, authCode = "") {
   const response = await fetch(`${base}/login`, {
     method: "POST",
     redirect: "manual",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ email: "admin@example.com", password: "correct-horse-battery", auth_code: authCode }),
+    body: new URLSearchParams({ email, password, auth_code: authCode }),
   });
   assert.equal(response.status, 303);
   return response.headers.get("set-cookie").split(";")[0];
+}
+
+async function csrfFor(base, cookie) {
+  const dashboard = await fetch(`${base}/dashboard`, { headers: { cookie } });
+  return (await dashboard.text()).match(/name="csrf" value="([^"]+)"/)[1];
+}
+
+async function controlFetch(base, path, { cookie, csrf, method = "GET", body } = {}) {
+  return fetch(`${base}${path}`, {
+    method,
+    headers: {
+      cookie,
+      ...(csrf ? { "x-csrf-token": csrf } : {}),
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
 }
 
 async function signedFetch(base, path, { agentId, privateKey, method = "GET", body = null, nonce = randomBytes(18).toString("base64url"), timestamp = String(Math.floor(Date.now() / 1000)) }) {
@@ -195,4 +226,569 @@ test("direct channels require two approved agents in a shared thread", async () 
   const channel = await opened.json();
   const message = await signedFetch(base, `/api/v1/direct-channels/${channel.id}/messages`, { agentId: first.id, privateKey: first.privateKey, method: "POST", body: { body: "Verify this sub-question" } });
   assert.equal(message.status, 201);
+});
+
+test("two owners approve a private assistant cohort and exchange an A2A message", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const aliceId = await createOperator(db, "alice@example.com", "Alice");
+  const bobId = await createOperator(db, "bob@example.com", "Bob");
+  const aliceAssistant = await createApprovedAgent(db, aliceId, "Alice Assistant", "Coordinate plans", adminId);
+  const bobAssistant = await createApprovedAgent(db, bobId, "Bob Assistant", "Protect Bob's preferences", adminId);
+
+  const aliceCookie = await loginAs(base, "alice@example.com", "operator-password");
+  const bobCookie = await loginAs(base, "bob@example.com", "operator-password");
+  const aliceCsrf = await csrfFor(base, aliceCookie);
+  const bobCsrf = await csrfFor(base, bobCookie);
+
+  const invited = await controlFetch(base, "/control/v1/cohort-invitations", {
+    cookie: aliceCookie,
+    csrf: aliceCsrf,
+    method: "POST",
+    body: {
+      inviterAssistantId: aliceAssistant.id,
+      inviteeAssistantId: bobAssistant.id,
+      purpose: "Find a mutually convenient meeting time",
+      policy: {
+        authority: "proposal_only",
+        allowedSkills: ["availability.exchange"],
+        shareableContext: ["availability.windows"],
+        forbiddenContext: ["calendar.event_titles"],
+      },
+    },
+  });
+  const invitedBody = await invited.json();
+  assert.equal(invited.status, 201, JSON.stringify(invitedBody));
+  const invitation = invitedBody.invitation;
+
+  const unilateral = await controlFetch(base, `/control/v1/cohort-invitations/${invitation.id}/accept`, {
+    cookie: aliceCookie,
+    csrf: aliceCsrf,
+    method: "POST",
+    body: {},
+  });
+  assert.equal(unilateral.status, 404);
+
+  const accepted = await controlFetch(base, `/control/v1/cohort-invitations/${invitation.id}/accept`, {
+    cookie: bobCookie,
+    csrf: bobCsrf,
+    method: "POST",
+    body: {},
+  });
+  assert.equal(accepted.status, 200);
+  const cohort = (await accepted.json()).cohort;
+
+  const tokenResponse = await signedFetch(base, "/api/v1/token", {
+    agentId: aliceAssistant.id,
+    privateKey: aliceAssistant.privateKey,
+    method: "POST",
+  });
+  assert.equal(tokenResponse.status, 200);
+  const aliceToken = (await tokenResponse.json()).access_token;
+
+  const cardResponse = await fetch(`${base}/.well-known/agent-card.json`, {
+    headers: { "a2a-version": "1.0" },
+  });
+  assert.equal(cardResponse.status, 200);
+  const cardJson = await cardResponse.json();
+  cardJson.supportedInterfaces[0].url = `${base}/a2a`;
+  const card = AgentCard.fromJSON(cardJson);
+  const authenticatedFetch = createAuthenticatingFetchWithRetry(fetch, {
+    headers: async () => ({ Authorization: `Bearer ${aliceToken}` }),
+    shouldRetryWithHeaders: async () => undefined,
+  });
+  const factory = new ClientFactory(ClientFactoryOptions.createFrom(
+    ClientFactoryOptions.default,
+    { transports: [new JsonRpcTransportFactory({ fetchImpl: authenticatedFetch })] },
+  ));
+  const client = await factory.createFromAgentCard(card);
+  const messageId = crypto.randomUUID();
+  const result = await client.sendMessage({
+    tenant: "",
+    message: {
+      messageId,
+      contextId: "",
+      taskId: "",
+      role: Role.ROLE_USER,
+      parts: [{
+        content: { $case: "text", value: "Alice is free after 18:00 on Thursday." },
+        metadata: undefined,
+        filename: "",
+        mediaType: "text/plain",
+      }],
+      metadata: {
+        [PRIVATE_COHORT_EXTENSION]: {
+          cohortId: cohort.id,
+          recipientAssistantId: bobAssistant.id,
+          contextGrantIds: [],
+        },
+      },
+      extensions: [PRIVATE_COHORT_EXTENSION],
+      referenceTaskIds: [],
+    },
+    configuration: undefined,
+    metadata: undefined,
+  }, {
+    serviceParameters: ServiceParameters.create(withA2AExtensions(PRIVATE_COHORT_EXTENSION)),
+  });
+  assert.equal(result.role, Role.ROLE_AGENT);
+
+  const bobTokenResponse = await signedFetch(base, "/api/v1/token", {
+    agentId: bobAssistant.id,
+    privateKey: bobAssistant.privateKey,
+    method: "POST",
+  });
+  const bobToken = (await bobTokenResponse.json()).access_token;
+  const inbox = await fetch(`${base}/agent/v1/inbox`, {
+    headers: { authorization: `Bearer ${bobToken}` },
+  });
+  assert.equal(inbox.status, 200);
+  const inboxBody = await inbox.json();
+  assert.equal(inboxBody.messages.length, 1);
+  assert.equal(inboxBody.messages[0].id, messageId);
+  const aliceInbox = await fetch(`${base}/agent/v1/inbox`, {
+    headers: { authorization: `Bearer ${aliceToken}` },
+  });
+  assert.equal((await aliceInbox.json()).messages.length, 0);
+
+  const proposalResponse = await fetch(`${base}/agent/v1/cohorts/${cohort.id}/proposals`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${aliceToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      title: "Thursday meeting",
+      body: { startsAt: "2026-09-03T18:30:00+05:30", durationMinutes: 60 },
+    }),
+  });
+  assert.equal(proposalResponse.status, 201);
+  const proposal = (await proposalResponse.json()).proposal;
+
+  const aliceDecision = await controlFetch(base, `/control/v1/approvals/${proposal.id}/decision`, {
+    cookie: aliceCookie,
+    csrf: aliceCsrf,
+    method: "POST",
+    body: { decision: "approved" },
+  });
+  assert.equal((await aliceDecision.json()).proposal.status, "pending");
+  const bobDecision = await controlFetch(base, `/control/v1/approvals/${proposal.id}/decision`, {
+    cookie: bobCookie,
+    csrf: bobCsrf,
+    method: "POST",
+    body: { decision: "approved" },
+  });
+  const outcome = await bobDecision.json();
+  assert.equal(outcome.proposal.status, "approved");
+  assert.match(outcome.receipt.content_hash, /^[a-f0-9]{64}$/);
+});
+
+async function formPost(base, path, cookie, fields) {
+  return fetch(`${base}${path}`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields),
+  });
+}
+
+test("owners run the whole consent flow from the browser without touching the API", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const aliceId = await createOperator(db, "alice@example.com", "Alice");
+  const bobId = await createOperator(db, "bob@example.com", "Bob");
+  const aliceAssistant = await createApprovedAgent(db, aliceId, "Alice Assistant", "Coordinate plans", adminId);
+  const bobAssistant = await createApprovedAgent(db, bobId, "Bob Assistant", "Protect Bob's preferences", adminId);
+
+  const anonymous = await fetch(`${base}/cohorts`, { redirect: "manual" });
+  assert.equal(anonymous.status, 303);
+  assert.equal(anonymous.headers.get("location"), "/login");
+
+  const aliceCookie = await loginAs(base, "alice@example.com", "operator-password");
+  const bobCookie = await loginAs(base, "bob@example.com", "operator-password");
+  const aliceCsrf = await csrfFor(base, aliceCookie);
+  const bobCsrf = await csrfFor(base, bobCookie);
+
+  const empty = await fetch(`${base}/cohorts`, { headers: { cookie: aliceCookie } });
+  assert.equal(empty.status, 200);
+  const emptyBody = await empty.text();
+  assert.match(emptyBody, /Invite another owner's assistant/);
+  assert.match(emptyBody, new RegExp(`#${aliceAssistant.id}`));
+  assert.match(emptyBody, /No private cohorts yet/);
+
+  const invited = await formPost(base, "/cohorts/invitations", aliceCookie, {
+    csrf: aliceCsrf,
+    inviter_assistant_id: String(aliceAssistant.id),
+    invitee_assistant_id: String(bobAssistant.id),
+    purpose: "Find a mutually convenient meeting time",
+    authority: "proposal_only",
+    allowed_skills: "availability.exchange, scheduling.propose",
+    shareable_context: "availability.windows",
+    forbidden_context: "calendar.event_titles",
+  });
+  assert.equal(invited.status, 200);
+  assert.match(await invited.text(), /Invitation sent/);
+
+  const bobInbox = await fetch(`${base}/cohorts`, { headers: { cookie: bobCookie } });
+  const bobInboxBody = await bobInbox.text();
+  assert.match(bobInboxBody, /Find a mutually convenient meeting time/);
+  assert.match(bobInboxBody, /Withheld: calendar.event_titles/);
+  const invitationId = bobInboxBody.match(/\/cohorts\/invitations\/([0-9a-f-]{36})\/accept/)[1];
+
+  const forged = await formPost(base, `/cohorts/invitations/${invitationId}/accept`, bobCookie, {
+    csrf: "not-the-session-token",
+  });
+  assert.equal(forged.status, 403);
+
+  const strangerCookie = await login(base);
+  const stranger = await formPost(base, `/cohorts/invitations/${invitationId}/accept`, strangerCookie, {
+    csrf: await csrfFor(base, strangerCookie),
+  });
+  assert.equal(stranger.status, 404);
+
+  const accepted = await formPost(base, `/cohorts/invitations/${invitationId}/accept`, bobCookie, {
+    csrf: bobCsrf,
+  });
+  assert.equal(accepted.status, 200);
+  const acceptedBody = await accepted.text();
+  assert.match(acceptedBody, /Cohort opened/);
+  const cohortId = acceptedBody.match(/\/cohorts\/([0-9a-f-]{36})\/leave/)[1];
+
+  const tokenResponse = await signedFetch(base, "/api/v1/token", {
+    agentId: aliceAssistant.id,
+    privateKey: aliceAssistant.privateKey,
+    method: "POST",
+  });
+  const aliceToken = (await tokenResponse.json()).access_token;
+  const proposalResponse = await fetch(`${base}/agent/v1/cohorts/${cohortId}/proposals`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${aliceToken}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      title: "Thursday 18:30",
+      body: { start: "2026-09-03T18:30:00Z", durationMinutes: 45 },
+    }),
+  });
+  assert.equal(proposalResponse.status, 201);
+  const proposalId = (await proposalResponse.json()).proposal.id;
+
+  const aliceReview = await fetch(`${base}/cohorts`, { headers: { cookie: aliceCookie } });
+  const aliceReviewBody = await aliceReview.text();
+  assert.match(aliceReviewBody, /1 proposal needs your decision/);
+  assert.match(aliceReviewBody, /Thursday 18:30/);
+  assert.match(aliceReviewBody, new RegExp(`/cohorts/approvals/${proposalId}/decision`));
+
+  const aliceApproval = await formPost(base, `/cohorts/approvals/${proposalId}/decision`, aliceCookie, {
+    csrf: aliceCsrf,
+    decision: "approved",
+    reason: "Matches my calendar",
+  });
+  assert.equal(aliceApproval.status, 200);
+  const aliceApprovalBody = await aliceApproval.text();
+  assert.match(aliceApprovalBody, /waits for the other owner/);
+  assert.doesNotMatch(aliceApprovalBody, /SHA-256/);
+
+  const replayed = await formPost(base, `/cohorts/approvals/${proposalId}/decision`, aliceCookie, {
+    csrf: aliceCsrf,
+    decision: "rejected",
+  });
+  assert.equal(replayed.status, 409);
+
+  const bobApproval = await formPost(base, `/cohorts/approvals/${proposalId}/decision`, bobCookie, {
+    csrf: bobCsrf,
+    decision: "approved",
+  });
+  assert.equal(bobApproval.status, 200);
+  const bobApprovalBody = await bobApproval.text();
+  assert.match(bobApprovalBody, /Both owners approved/);
+  assert.match(bobApprovalBody, /SHA-256 [a-f0-9]{64}/);
+
+  const left = await formPost(base, `/cohorts/${cohortId}/leave`, bobCookie, { csrf: bobCsrf });
+  assert.equal(left.status, 200);
+  assert.match(await left.text(), /it is now closed/);
+
+  const closed = await db.one("SELECT state FROM assistant_cohorts WHERE id = $1", [cohortId]);
+  assert.equal(closed.state, "closed");
+});
+
+async function openCohort(base, db, adminId) {
+  const aliceId = await createOperator(db, "alice@example.com", "Alice");
+  const bobId = await createOperator(db, "bob@example.com", "Bob");
+  const alice = await createApprovedAgent(db, aliceId, "Alice Assistant", "Coordinate plans", adminId);
+  const bob = await createApprovedAgent(db, bobId, "Bob Assistant", "Protect Bob's preferences", adminId);
+  const aliceCookie = await loginAs(base, "alice@example.com", "operator-password");
+  const bobCookie = await loginAs(base, "bob@example.com", "operator-password");
+  const aliceCsrf = await csrfFor(base, aliceCookie);
+  const bobCsrf = await csrfFor(base, bobCookie);
+  const invitation = (await (await controlFetch(base, "/control/v1/cohort-invitations", {
+    cookie: aliceCookie,
+    csrf: aliceCsrf,
+    method: "POST",
+    body: {
+      inviterAssistantId: alice.id,
+      inviteeAssistantId: bob.id,
+      purpose: "Find a mutually convenient meeting time",
+      policy: { authority: "proposal_only", forbiddenContext: ["calendar.event_titles"] },
+    },
+  })).json()).invitation;
+  const accepted = await controlFetch(base, `/control/v1/cohort-invitations/${invitation.id}/accept`, {
+    cookie: bobCookie, csrf: bobCsrf, method: "POST", body: {},
+  });
+  const cohort = (await accepted.json()).cohort;
+  return {
+    aliceId, bobId, alice, bob, aliceCookie, bobCookie, aliceCsrf, bobCsrf, invitation, cohort,
+  };
+}
+
+async function agentToken(base, assistant) {
+  const response = await signedFetch(base, "/api/v1/token", {
+    agentId: assistant.id,
+    privateKey: assistant.privateKey,
+    method: "POST",
+  });
+  return (await response.json()).access_token;
+}
+
+test("an owner reads the whole transcript of what their assistant disclosed", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const { alice, bob, aliceCookie, bobCookie, cohort } = await openCohort(base, db, adminId);
+
+  await storeCohortMessage(db, alice.id, {
+    messageId: crypto.randomUUID(),
+    contextId: "thread-1",
+    parts: [{ content: { $case: "text", value: "Alice is free after 18:00 on Thursday." }, mediaType: "text/plain" }],
+    metadata: { [PRIVATE_COHORT_EXTENSION]: { cohortId: cohort.id, recipientAssistantId: bob.id } },
+    extensions: [PRIVATE_COHORT_EXTENSION],
+  });
+  await storeCohortMessage(db, bob.id, {
+    messageId: crypto.randomUUID(),
+    contextId: "thread-1",
+    parts: [{ content: { $case: "data", value: { windows: ["2026-09-03T18:30Z"] } }, mediaType: "application/json" }],
+    metadata: { [PRIVATE_COHORT_EXTENSION]: { cohortId: cohort.id, recipientAssistantId: alice.id } },
+    extensions: [PRIVATE_COHORT_EXTENSION],
+  });
+
+  const transcript = await fetch(`${base}/cohorts/${cohort.id}`, { headers: { cookie: aliceCookie } });
+  assert.equal(transcript.status, 200);
+  const body = await transcript.text();
+  assert.match(body, /Alice is free after 18:00 on Thursday/);
+  assert.match(body, /2026-09-03T18:30Z/);
+  assert.match(body, /Alice Assistant \(yours\) → Bob Assistant/);
+  assert.match(body, /Bob Assistant → Alice Assistant \(yours\)/);
+  assert.match(body, /Not yet acknowledged/);
+  assert.match(body, /Withheld: calendar.event_titles/);
+
+  // The other owner sees the same exchange from their own side.
+  const bobView = await fetch(`${base}/cohorts/${cohort.id}`, { headers: { cookie: bobCookie } });
+  assert.match(await bobView.text(), /Bob Assistant \(yours\) → Alice Assistant/);
+
+  // Nobody outside the cohort can read it.
+  const strangerCookie = await login(base);
+  const stranger = await fetch(`${base}/cohorts/${cohort.id}`, { headers: { cookie: strangerCookie } });
+  assert.equal(stranger.status, 404);
+  const anonymous = await fetch(`${base}/cohorts/${cohort.id}`, { redirect: "manual" });
+  assert.equal(anonymous.status, 303);
+});
+
+test("an inviter revokes a pending invitation before it is accepted", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const aliceId = await createOperator(db, "alice@example.com", "Alice");
+  const bobId = await createOperator(db, "bob@example.com", "Bob");
+  const alice = await createApprovedAgent(db, aliceId, "Alice Assistant", "Coordinate plans", adminId);
+  const bob = await createApprovedAgent(db, bobId, "Bob Assistant", "Protect preferences", adminId);
+  const aliceCookie = await loginAs(base, "alice@example.com", "operator-password");
+  const bobCookie = await loginAs(base, "bob@example.com", "operator-password");
+  const aliceCsrf = await csrfFor(base, aliceCookie);
+  const bobCsrf = await csrfFor(base, bobCookie);
+
+  await formPost(base, "/cohorts/invitations", aliceCookie, {
+    csrf: aliceCsrf,
+    inviter_assistant_id: String(alice.id),
+    invitee_assistant_id: String(bob.id),
+    purpose: "Swap availability",
+  });
+  const sent = await (await fetch(`${base}/cohorts`, { headers: { cookie: aliceCookie } })).text();
+  const invitationId = sent.match(/\/cohorts\/invitations\/([0-9a-f-]{36})\/revoke/)[1];
+
+  // The invited owner cannot revoke someone else's invitation.
+  const wrongSide = await formPost(base, `/cohorts/invitations/${invitationId}/revoke`, bobCookie, { csrf: bobCsrf });
+  assert.equal(wrongSide.status, 404);
+
+  const revoked = await formPost(base, `/cohorts/invitations/${invitationId}/revoke`, aliceCookie, { csrf: aliceCsrf });
+  assert.equal(revoked.status, 200);
+  assert.match(await revoked.text(), /Invitation revoked/);
+
+  const tooLate = await formPost(base, `/cohorts/invitations/${invitationId}/accept`, bobCookie, { csrf: bobCsrf });
+  assert.equal(tooLate.status, 409);
+  const cohorts = await db.all("SELECT id FROM assistant_cohorts", []);
+  assert.equal(cohorts.length, 0);
+});
+
+test("a pending proposal can be withdrawn by its assistant or by its owner", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const { alice, aliceCookie, aliceCsrf, bobCookie, bobCsrf, cohort } = await openCohort(base, db, adminId);
+  const token = await agentToken(base, alice);
+
+  async function draft(title) {
+    const response = await fetch(`${base}/agent/v1/cohorts/${cohort.id}/proposals`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ title, body: { start: "2026-09-03T18:30:00Z" } }),
+    });
+    assert.equal(response.status, 201);
+    return (await response.json()).proposal.id;
+  }
+
+  // The assistant retracts its own draft.
+  const first = await draft("Thursday 18:30");
+  const byAgent = await fetch(`${base}/agent/v1/proposals/${first}/withdraw`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(byAgent.status, 200);
+  assert.equal((await byAgent.json()).proposal.status, "withdrawn");
+
+  // A withdrawn proposal is closed to owner decisions.
+  const decision = await formPost(base, `/cohorts/approvals/${first}/decision`, bobCookie, {
+    csrf: bobCsrf, decision: "approved",
+  });
+  assert.equal(decision.status, 409);
+
+  // The owner of the drafting assistant can withdraw from the browser.
+  const second = await draft("Friday 09:00");
+  const notMine = await formPost(base, `/cohorts/proposals/${second}/withdraw`, bobCookie, { csrf: bobCsrf });
+  assert.equal(notMine.status, 404);
+
+  const byOwner = await formPost(base, `/cohorts/proposals/${second}/withdraw`, aliceCookie, { csrf: aliceCsrf });
+  assert.equal(byOwner.status, 200);
+  assert.match(await byOwner.text(), /Proposal withdrawn/);
+  const stored = await db.one("SELECT status FROM assistant_cohort_proposals WHERE id = $1", [second]);
+  assert.equal(stored.status, "withdrawn");
+  const receipts = await db.all("SELECT id FROM assistant_outcome_receipts", []);
+  assert.equal(receipts.length, 0);
+});
+
+test("suspending an owner closes their cohorts and cohort messages age out", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const { aliceId, alice, bob, bobCookie, cohort } = await openCohort(base, db, adminId);
+
+  const messageId = crypto.randomUUID();
+  await storeCohortMessage(db, alice.id, {
+    messageId,
+    contextId: "thread-1",
+    parts: [{ content: { $case: "text", value: "Stale disclosure" }, mediaType: "text/plain" }],
+    metadata: { [PRIVATE_COHORT_EXTENSION]: { cohortId: cohort.id, recipientAssistantId: bob.id } },
+    extensions: [PRIVATE_COHORT_EXTENSION],
+  });
+
+  const bobToken = await agentToken(base, bob);
+  const fresh = await fetch(`${base}/agent/v1/inbox`, { headers: { authorization: `Bearer ${bobToken}` } });
+  assert.equal((await fresh.json()).messages.length, 1);
+
+  // Past the retention window the message is swept on the next inbox read.
+  await db.query(
+    "UPDATE assistant_cohort_messages SET created_at = $1 WHERE id = $2",
+    [new Date(Date.now() - 40 * 86_400_000).toISOString(), messageId],
+  );
+  const aged = await fetch(`${base}/agent/v1/inbox`, { headers: { authorization: `Bearer ${bobToken}` } });
+  assert.equal((await aged.json()).messages.length, 0);
+
+  const adminCookie = await login(base);
+  const suspended = await formPost(base, `/admin/operators/${aliceId}/status`, adminCookie, {
+    csrf: await csrfFor(base, adminCookie),
+    status: "suspended",
+  });
+  assert.equal(suspended.status, 303);
+
+  const closed = await db.one("SELECT state FROM assistant_cohorts WHERE id = $1", [cohort.id]);
+  assert.equal(closed.state, "closed");
+  const remaining = await fetch(`${base}/cohorts/${cohort.id}`, { headers: { cookie: bobCookie } });
+  assert.match(await remaining.text(), /badge closed/);
+});
+
+async function postAs(base, agent, threadId, body, sourceUrl = null) {
+  const response = await signedFetch(base, `/api/v1/threads/${threadId}/posts`, {
+    agentId: agent.id, privateKey: agent.privateKey, method: "POST",
+    body: sourceUrl ? { body, source_url: sourceUrl } : { body },
+  });
+  assert.equal(response.status, 201);
+  return (await response.json()).id;
+}
+
+async function adminForm(base, cookie, path, fields) {
+  return fetch(`${base}${path}`, {
+    method: "POST", redirect: "manual",
+    headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields),
+  });
+}
+
+test("a moderator audits a thread they did not read and resolves it to a cited artifact", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const firstOperator = await createOperator(db, "one@example.com", "One");
+  const secondOperator = await createOperator(db, "two@example.com", "Two");
+  const first = await createApprovedAgent(db, firstOperator, "Research", "Find cited facts", adminId);
+  const second = await createApprovedAgent(db, secondOperator, "Review", "Check claims", adminId);
+  const threadId = await createOpenThread(db, adminId);
+  for (const agent of [first, second]) await db.query("INSERT INTO thread_participants (thread_id, agent_id, admitted_by) VALUES ($1, $2, $3)", [threadId, agent.id, adminId]);
+  const supporting = await postAs(base, first, threadId, "The dataset reports 412 rows", "https://example.com/dataset");
+  const unsourced = await postAs(base, second, threadId, "I cannot reproduce that count");
+  const noisy = await postAs(base, second, threadId, "Contact me at my personal address");
+
+  const operatorCookie = await loginAs(base, "one@example.com", "operator-password");
+  assert.equal((await fetch(`${base}/admin/threads/${threadId}`, { headers: { cookie: operatorCookie } })).status, 403);
+
+  const cookie = await login(base);
+  const triage = await fetch(`${base}/admin/threads/${threadId}`, { headers: { cookie } });
+  assert.equal(triage.status, 200);
+  const digest = await triage.text();
+  assert.match(digest, /operator handoffs/);
+  assert.match(digest, /https:\/\/example\.com\/dataset/);
+  assert.match(digest, new RegExp(`#post-${supporting}`));
+  assert.match(digest, /2 of 3 posts cite no source/);
+  assert.doesNotMatch(digest, /Single operator/);
+
+  const csrf = digest.match(/name="csrf" value="([^"]+)"/)[1];
+  const redacted = await adminForm(base, cookie, "/admin/redact", { csrf, post_id: String(noisy), thread_id: String(threadId), reason: "Personal contact details" });
+  assert.equal(redacted.status, 303);
+  assert.equal(redacted.headers.get("location"), `/admin/threads/${threadId}`);
+  assert.match(await (await fetch(`${base}/admin/threads/${threadId}`, { headers: { cookie } })).text(), /1 redacted post/);
+
+  const resolved = await adminForm(base, cookie, `/admin/threads/${threadId}/resolve`, {
+    csrf, title: "Row count answer", body: "The dataset has 412 rows, contested once.",
+    [`cite_${supporting}`]: "on", [`cite_${unsourced}`]: "on",
+  });
+  assert.equal(resolved.status, 303);
+  assert.deepEqual((await db.all("SELECT post_id FROM artifact_citations ORDER BY post_id")).map((row) => Number(row.post_id)), [supporting, unsourced].sort((a, b) => a - b));
+
+  const spectator = await (await fetch(`${base}/threads/${threadId}`)).text();
+  assert.match(spectator, new RegExp(`Supported by <a href="#post-${supporting}">post #${supporting}</a>`));
+  assert.match(spectator, /supports the artifact/);
+  assert.match(spectator, /Contribution record/);
+
+  const detail = await signedFetch(base, `/api/v1/threads/${threadId}`, { agentId: first.id, privateKey: first.privateKey });
+  assert.deepEqual((await detail.json()).artifact.supporting_posts, [supporting, unsourced].sort((a, b) => a - b));
+});
+
+test("an artifact cannot cite a redacted post or one from another thread", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const operatorId = await createOperator(db, "operator@example.com", "Operator");
+  const agent = await createApprovedAgent(db, operatorId, "Research", "Find cited facts", adminId);
+  const threadId = await createOpenThread(db, adminId);
+  const otherThreadId = await createOpenThread(db, adminId, "other");
+  for (const id of [threadId, otherThreadId]) await db.query("INSERT INTO thread_participants (thread_id, agent_id, admitted_by) VALUES ($1, $2, $3)", [id, agent.id, adminId]);
+  const inThread = await postAs(base, agent, threadId, "A finding", "https://example.com/source");
+  const elsewhere = await postAs(base, agent, otherThreadId, "An unrelated finding");
+
+  const cookie = await login(base);
+  const csrf = await csrfFor(base, cookie);
+  await adminForm(base, cookie, "/admin/redact", { csrf, post_id: String(inThread), thread_id: String(threadId), reason: "Unverifiable" });
+
+  const citedRedaction = await adminForm(base, cookie, `/admin/threads/${threadId}/resolve`, { csrf, title: "Answer", body: "Body", [`cite_${inThread}`]: "on" });
+  assert.equal(citedRedaction.status, 400);
+  const citedForeign = await adminForm(base, cookie, `/admin/threads/${threadId}/resolve`, { csrf, title: "Answer", body: "Body", [`cite_${elsewhere}`]: "on" });
+  assert.equal(citedForeign.status, 400);
+  assert.equal((await db.one("SELECT COUNT(*)::int AS count FROM artifacts")).count, 0);
+  assert.equal((await db.one("SELECT state FROM threads WHERE id = $1", [threadId])).state, "open");
+
+  const resolved = await adminForm(base, cookie, `/admin/threads/${threadId}/resolve`, { csrf, title: "Answer", body: "Body" });
+  assert.equal(resolved.status, 303);
+  assert.match(await (await fetch(`${base}/threads/${threadId}`)).text(), /A moderator linked no supporting posts/);
 });

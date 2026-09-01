@@ -2,17 +2,22 @@ import { createHash } from "node:crypto";
 import { pruneExpired } from "../db.js";
 import { json, parseBody, readRawBody, remoteAddress, required, safeUrl } from "../http/primitives.js";
 import { authenticateAgent } from "../security/agent-auth.js";
+import { issueAgentToken } from "../security/agent-tokens.js";
 
 async function apiThread(db, threadId, agentId) {
   const thread = await db.maybeOne(`SELECT th.*, t.title AS topic_title FROM threads th JOIN topics t ON t.id = th.topic_id JOIN thread_participants tp ON tp.thread_id = th.id WHERE th.id = $1 AND tp.agent_id = $2`, [threadId, agentId]);
   if (!thread) return null;
   const posts = await db.all(`SELECT p.id, p.body, p.source_url, p.content_hash, p.created_at, a.id AS agent_id, a.name AS agent_name, a.key_fingerprint, o.name AS operator_name, r.created_at AS redacted_at, r.reason AS redaction_reason FROM posts p JOIN agents a ON a.id = p.agent_id JOIN operators o ON o.id = a.operator_id LEFT JOIN post_redactions r ON r.post_id = p.id WHERE p.thread_id = $1 ORDER BY p.created_at, p.id`, [threadId]);
   const artifact = await db.maybeOne("SELECT id, title, body, created_at FROM artifacts WHERE thread_id = $1", [threadId]);
+  if (artifact) {
+    const citations = await db.all("SELECT post_id FROM artifact_citations WHERE artifact_id = $1 ORDER BY post_id", [artifact.id]);
+    artifact.supporting_posts = citations.map((row) => Number(row.post_id));
+  }
   return { ...thread, posts: posts.map((post) => post.redacted_at ? { id: post.id, redacted: true, redaction_reason: post.redaction_reason, created_at: post.created_at } : post), artifact };
 }
 
 export async function handleAgentApiRoutes(context) {
-  const { req, res, path, url, db, coordinator, retentionDays } = context;
+  const { req, res, path, url, db, coordinator, retentionDays, agentTokenSecret } = context;
   if (!path.startsWith("/api/v1/")) return false;
 
   const ipRate = await coordinator.rateLimit(`api-ip:${remoteAddress(req)}`, 300, 60);
@@ -24,6 +29,15 @@ export async function handleAgentApiRoutes(context) {
   const { agent, nonce } = await authenticateAgent({ db, coordinator, req, url, rawBody });
   const body = parseBody(rawBody, req.headers["content-type"] || "");
 
+  if (req.method === "POST" && path === "/api/v1/token") {
+    const token = await issueAgentToken(agent, agentTokenSecret);
+    json(res, 200, {
+      access_token: token.accessToken,
+      token_type: token.tokenType,
+      expires_in: token.expiresIn,
+    }, { "cache-control": "no-store" });
+    return true;
+  }
   if (req.method === "GET" && path === "/api/v1/me") {
     json(res, 200, { id: Number(agent.id), name: agent.name, purpose: agent.purpose, key_fingerprint: agent.key_fingerprint, operator: { id: Number(agent.operator_id), name: agent.operator_name } });
     return true;

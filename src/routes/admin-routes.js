@@ -2,7 +2,18 @@ import { hashPassword, randomToken } from "../auth.js";
 import { audit } from "../db.js";
 import { redirect, required, send, slugify, webBody } from "../http/primitives.js";
 import { adminPage } from "../pages/admin-page.js";
+import { triagePage } from "../pages/triage-page.js";
+import { closeCohortsForOperator } from "../cohorts/service.js";
 import { assertAdmin, assertCsrf } from "../security/operator-auth.js";
+
+async function citedPostIds(db, threadId, body, client) {
+  const requested = new Set(Object.keys(body).map((key) => key.match(/^cite_(\d+)$/)).filter(Boolean).map((match) => Number(match[1])));
+  if (!requested.size) return [];
+  const rows = await db.all("SELECT p.id FROM posts p LEFT JOIN post_redactions r ON r.post_id = p.id WHERE p.thread_id = $1 AND r.post_id IS NULL", [threadId], client);
+  const citable = rows.map((row) => Number(row.id)).filter((id) => requested.has(id));
+  if (citable.length !== requested.size) throw Object.assign(new Error("An artifact can only cite unredacted posts from its own thread"), { status: 400 });
+  return citable;
+}
 
 export async function handleAdminRoutes(context) {
   const { req, res, path, db, operator, requireAdminMfa } = context;
@@ -40,7 +51,13 @@ export async function handleAdminRoutes(context) {
     return true;
   }
 
-  let match = path.match(/^\/admin\/threads\/(\d+)\/admit$/);
+  let match = path.match(/^\/admin\/threads\/(\d+)$/);
+  if (req.method === "GET" && match) {
+    assertAdmin(operator, requireAdminMfa);
+    send(res, await triagePage(db, operator, Number(match[1])), { "cache-control": "private, no-store" });
+    return true;
+  }
+  match = path.match(/^\/admin\/threads\/(\d+)\/admit$/);
   if (req.method === "POST" && match) {
     assertAdmin(operator, requireAdminMfa); const body = await webBody(req); assertCsrf(operator, body);
     const threadId = Number(match[1]); const agentId = Number(body.agent_id);
@@ -84,9 +101,11 @@ export async function handleAdminRoutes(context) {
     await db.transaction(async (client) => {
       const thread = await db.maybeOne("SELECT state FROM threads WHERE id = $1 FOR UPDATE", [threadId], client);
       if (!thread || !["open", "frozen"].includes(thread.state)) throw Object.assign(new Error("Only an open or frozen thread can be resolved"), { status: 409 });
-      await db.query("INSERT INTO artifacts (thread_id, title, body, created_by) VALUES ($1, $2, $3, $4)", [threadId, required(body.title, "Artifact title", 180), required(body.body, "Artifact body", 20_000), operator.id], client);
+      const citations = await citedPostIds(db, threadId, body, client);
+      const artifact = await db.one("INSERT INTO artifacts (thread_id, title, body, created_by) VALUES ($1, $2, $3, $4) RETURNING id", [threadId, required(body.title, "Artifact title", 180), required(body.body, "Artifact body", 20_000), operator.id], client);
+      for (const postId of citations) await db.query("INSERT INTO artifact_citations (artifact_id, post_id) VALUES ($1, $2)", [artifact.id, postId], client);
       await db.query("UPDATE threads SET state = 'resolved', updated_at = NOW() WHERE id = $1", [threadId], client);
-      await audit(db, operator.id, "resolve", "thread", threadId, null, {}, client);
+      await audit(db, operator.id, "resolve", "thread", threadId, null, { citations }, client);
     });
     redirect(res, `/threads/${threadId}`);
     return true;
@@ -96,7 +115,8 @@ export async function handleAdminRoutes(context) {
     const postId = Number(body.post_id); const reason = required(body.reason, "Reason", 500);
     await db.query("INSERT INTO post_redactions (post_id, moderator_id, reason) VALUES ($1, $2, $3)", [postId, operator.id, reason]);
     await audit(db, operator.id, "redact", "post", postId, reason);
-    redirect(res, "/admin");
+    const threadId = Number(body.thread_id);
+    redirect(res, Number.isInteger(threadId) && threadId > 0 ? `/admin/threads/${threadId}` : "/admin");
     return true;
   }
   match = path.match(/^\/admin\/operators\/(\d+)\/status$/);
@@ -111,6 +131,7 @@ export async function handleAdminRoutes(context) {
       if (status === "suspended") {
         await db.query("DELETE FROM sessions WHERE operator_id = $1", [id], client);
         await db.query("UPDATE agents SET status = 'suspended' WHERE operator_id = $1", [id], client);
+        await closeCohortsForOperator(db, id, client);
       }
       await audit(db, operator.id, status, "operator", id, null, {}, client);
     });
@@ -126,6 +147,7 @@ export async function handleAdminRoutes(context) {
       if (!target || target.role === "admin") throw Object.assign(new Error("That operator cannot be deleted"), { status: 409 });
       await db.query("DELETE FROM sessions WHERE operator_id = $1", [id], client);
       await db.query("UPDATE agents SET status = 'suspended' WHERE operator_id = $1", [id], client);
+      await closeCohortsForOperator(db, id, client);
       await db.query("UPDATE operators SET email = $1, name = 'Deleted operator', status = 'deleted', deleted_at = NOW(), mfa_secret_ciphertext = NULL, mfa_pending_ciphertext = NULL, mfa_recovery_hashes = '[]'::jsonb WHERE id = $2", [`deleted-${id}@invalid.local`, id], client);
       await audit(db, operator.id, "delete-and-anonymize", "operator", id, null, {}, client);
     });

@@ -16,7 +16,7 @@ export function formatDate(value) {
 
 function nav(operator) {
   if (!operator) return `<a href="/login">Operator sign in</a>`;
-  return `<a href="/dashboard">Dashboard</a>${operator.role === "admin" ? '<a href="/admin">Moderate</a>' : ""}<form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="${escapeHtml(operator.csrf_token)}"><button class="link">Sign out</button></form>`;
+  return `<a href="/dashboard">Dashboard</a><a href="/cohorts">Cohorts</a>${operator.role === "admin" ? '<a href="/admin">Moderate</a>' : ""}<form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="${escapeHtml(operator.csrf_token)}"><button class="link">Sign out</button></form>`;
 }
 
 export function layout({ title, content, operator = null, status = 200 }) {

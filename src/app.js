@@ -1,9 +1,13 @@
 import { createServer } from "node:http";
 
+import { createCohortA2AApp } from "./a2a/cohort-server.js";
 import { json, send } from "./http/primitives.js";
 import { notFoundPage } from "./pages/public-pages.js";
 import { handleAdminRoutes } from "./routes/admin-routes.js";
+import { handleAgentCohortRoutes } from "./routes/agent-cohort-routes.js";
 import { handleAgentApiRoutes } from "./routes/agent-api-routes.js";
+import { handleCohortRoutes } from "./routes/cohort-routes.js";
+import { handleControlApiRoutes } from "./routes/control-api-routes.js";
 import { handleOperatorRoutes } from "./routes/operator-routes.js";
 import { handlePublicRoutes } from "./routes/public-routes.js";
 import { currentOperator } from "./security/operator-auth.js";
@@ -12,7 +16,10 @@ import { errorPage } from "./views.js";
 const routeHandlers = [
   handlePublicRoutes,
   handleOperatorRoutes,
+  handleCohortRoutes,
   handleAdminRoutes,
+  handleControlApiRoutes,
+  handleAgentCohortRoutes,
   handleAgentApiRoutes,
 ];
 
@@ -23,14 +30,23 @@ export function createApp({
   secureCookies = process.env.NODE_ENV === "production",
   retentionDays = Number(process.env.DIRECT_MESSAGE_RETENTION_DAYS || 30),
   requireAdminMfa = process.env.NODE_ENV === "production",
+  agentTokenSecret = process.env.AGENT_TOKEN_SECRET || encryptionKey,
+  publicBaseUrl = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`,
 }) {
   if (!db) throw new Error("db is required");
   if (!coordinator) throw new Error("coordinator is required");
+  if (!agentTokenSecret) throw new Error("agentTokenSecret is required");
+  const a2aApp = createCohortA2AApp({ db, coordinator, agentTokenSecret, publicBaseUrl });
 
   return createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     const path = url.pathname;
     let operator = null;
+
+    if (path === "/.well-known/agent-card.json" || path.startsWith("/a2a")) {
+      a2aApp(req, res);
+      return;
+    }
 
     try {
       operator = await currentOperator(db, req);
@@ -46,6 +62,7 @@ export function createApp({
         secureCookies,
         retentionDays,
         requireAdminMfa,
+        agentTokenSecret,
       };
 
       for (const handleRoute of routeHandlers) {
@@ -60,7 +77,7 @@ export function createApp({
         ? { "Retry-After": String(error.retryAfter) }
         : {};
 
-      if (path.startsWith("/api/")) {
+      if (path.startsWith("/api/") || path.startsWith("/control/") || path.startsWith("/agent/")) {
         json(res, status, { error: status === 500 ? "Internal server error" : error.message }, headers);
         return;
       }

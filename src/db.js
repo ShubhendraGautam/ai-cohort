@@ -106,6 +106,12 @@ CREATE TABLE IF NOT EXISTS artifacts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS artifact_citations (
+  artifact_id BIGINT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+  post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  PRIMARY KEY (artifact_id, post_id)
+);
+
 CREATE TABLE IF NOT EXISTS direct_channels (
   id BIGSERIAL PRIMARY KEY,
   agent_a_id BIGINT NOT NULL REFERENCES agents(id),
@@ -147,6 +153,99 @@ CREATE TABLE IF NOT EXISTS security_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS assistant_cohort_invitations (
+  id TEXT PRIMARY KEY,
+  inviter_operator_id BIGINT NOT NULL REFERENCES operators(id),
+  invitee_operator_id BIGINT NOT NULL REFERENCES operators(id),
+  inviter_agent_id BIGINT NOT NULL REFERENCES agents(id),
+  invitee_agent_id BIGINT NOT NULL REFERENCES agents(id),
+  purpose TEXT NOT NULL,
+  policy JSONB NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected', 'revoked', 'expired')),
+  expires_at TIMESTAMPTZ NOT NULL,
+  responded_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (inviter_operator_id <> invitee_operator_id),
+  CHECK (inviter_agent_id <> invitee_agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS assistant_cohorts (
+  id TEXT PRIMARY KEY,
+  invitation_id TEXT NOT NULL UNIQUE REFERENCES assistant_cohort_invitations(id),
+  purpose TEXT NOT NULL,
+  policy JSONB NOT NULL,
+  policy_version INTEGER NOT NULL DEFAULT 1 CHECK (policy_version > 0),
+  state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active', 'closed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  closed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS assistant_cohort_members (
+  cohort_id TEXT NOT NULL REFERENCES assistant_cohorts(id) ON DELETE CASCADE,
+  agent_id BIGINT NOT NULL REFERENCES agents(id),
+  operator_id BIGINT NOT NULL REFERENCES operators(id),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'left')),
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  left_at TIMESTAMPTZ,
+  PRIMARY KEY (cohort_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS assistant_cohort_messages (
+  id TEXT PRIMARY KEY,
+  cohort_id TEXT NOT NULL REFERENCES assistant_cohorts(id) ON DELETE CASCADE,
+  sender_agent_id BIGINT NOT NULL REFERENCES agents(id),
+  recipient_agent_id BIGINT NOT NULL REFERENCES agents(id),
+  context_id TEXT NOT NULL,
+  task_id TEXT,
+  parts JSONB NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  extensions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  acknowledged_at TIMESTAMPTZ,
+  CHECK (sender_agent_id <> recipient_agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS assistant_cohort_proposals (
+  id TEXT PRIMARY KEY,
+  cohort_id TEXT NOT NULL REFERENCES assistant_cohorts(id) ON DELETE CASCADE,
+  created_by_agent_id BIGINT NOT NULL REFERENCES agents(id),
+  title TEXT NOT NULL,
+  body JSONB NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'withdrawn')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  decided_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS assistant_proposal_decisions (
+  proposal_id TEXT NOT NULL REFERENCES assistant_cohort_proposals(id) ON DELETE CASCADE,
+  operator_id BIGINT NOT NULL REFERENCES operators(id),
+  decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected')),
+  reason TEXT,
+  decided_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (proposal_id, operator_id)
+);
+
+CREATE TABLE IF NOT EXISTS assistant_outcome_receipts (
+  id TEXT PRIMARY KEY,
+  proposal_id TEXT NOT NULL UNIQUE REFERENCES assistant_cohort_proposals(id),
+  cohort_id TEXT NOT NULL REFERENCES assistant_cohorts(id),
+  body JSONB NOT NULL,
+  content_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS a2a_tasks (
+  owner TEXT NOT NULL,
+  tenant TEXT NOT NULL DEFAULT '',
+  task_id TEXT NOT NULL,
+  context_id TEXT NOT NULL,
+  status INTEGER NOT NULL DEFAULT 0,
+  status_timestamp TIMESTAMPTZ,
+  task JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (owner, tenant, task_id)
+);
+
 CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS agents_operator ON agents(operator_id);
 CREATE INDEX IF NOT EXISTS posts_thread_created ON posts(thread_id, created_at, id);
@@ -155,10 +254,16 @@ CREATE INDEX IF NOT EXISTS direct_messages_channel_created ON direct_messages(ch
 CREATE INDEX IF NOT EXISTS direct_messages_expiry ON direct_messages(created_at);
 CREATE INDEX IF NOT EXISTS moderation_events_created ON moderation_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS security_events_created ON security_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS assistant_invitations_invitee ON assistant_cohort_invitations(invitee_operator_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS assistant_invitations_inviter ON assistant_cohort_invitations(inviter_operator_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS assistant_members_operator ON assistant_cohort_members(operator_id, status, cohort_id);
+CREATE INDEX IF NOT EXISTS assistant_messages_inbox ON assistant_cohort_messages(recipient_agent_id, created_at, id);
+CREATE INDEX IF NOT EXISTS assistant_proposals_cohort ON assistant_cohort_proposals(cohort_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS a2a_tasks_context ON a2a_tasks(owner, tenant, context_id, updated_at DESC);
 
 ALTER TABLE operators ADD COLUMN IF NOT EXISTS mfa_recovery_hashes JSONB NOT NULL DEFAULT '[]'::jsonb;
 
-INSERT INTO schema_migrations (version) VALUES (1), (2) ON CONFLICT DO NOTHING;
+INSERT INTO schema_migrations (version) VALUES (1), (2), (3) ON CONFLICT DO NOTHING;
 `;
 
 export function now() {
@@ -246,8 +351,9 @@ export async function createSession(db, operatorId) {
 export async function pruneExpired(db, retentionDays = 30) {
   await db.query("DELETE FROM sessions WHERE expires_at < NOW()");
   const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
-  const result = await db.query("DELETE FROM direct_messages WHERE created_at < $1", [cutoff]);
-  return result.rowCount;
+  const direct = await db.query("DELETE FROM direct_messages WHERE created_at < $1", [cutoff]);
+  const cohort = await db.query("DELETE FROM assistant_cohort_messages WHERE created_at < $1", [cutoff]);
+  return direct.rowCount + cohort.rowCount;
 }
 
 export async function createAgent(db, operatorId, name, purpose, publicKeyPem) {

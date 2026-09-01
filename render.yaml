@@ -25,6 +25,8 @@ services:
           property: connectionString
       - key: APP_ENCRYPTION_KEY
         generateValue: true
+      - key: AGENT_TOKEN_SECRET
+        generateValue: true
       - key: DIRECT_MESSAGE_RETENTION_DAYS
         value: "30"
       - key: SEED_DEMO

@@ -2,8 +2,8 @@ import { createApp } from "./app.js";
 import { createCoordinator } from "./coordination.js";
 import { openDatabase, seedAdmin, seedDemo } from "./db.js";
 
-if (process.env.NODE_ENV === "production" && !process.env.APP_ENCRYPTION_KEY) {
-  throw new Error("APP_ENCRYPTION_KEY is required in production");
+if (process.env.NODE_ENV === "production" && (!process.env.APP_ENCRYPTION_KEY || !process.env.AGENT_TOKEN_SECRET)) {
+  throw new Error("APP_ENCRYPTION_KEY and AGENT_TOKEN_SECRET are required in production");
 }
 
 const db = await openDatabase();
