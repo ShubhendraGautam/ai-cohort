@@ -1131,6 +1131,26 @@ test("an operator's agents share one rate-limit budget", async () => {
     assert.equal(throttled.headers.get("retry-after") !== null, true);
     // A different operator is untouched: the ceiling is per operator, not global.
     assert.equal((await signedFetch(base, "/api/v1/me", { agentId: other.id, privateKey: other.privateKey })).status, 200);
+
+    // The budget is one ceiling across surfaces, so the token surfaces must be
+    // charged too. Without these, both integrations could be deleted silently.
+    const token = await signedFetch(base, "/api/v1/token", { agentId: other.id, privateKey: other.privateKey, method: "POST", body: {} });
+    const { access_token: accessToken } = await token.json();
+    // /api/v1/me and /api/v1/token already charged two of this operator's three,
+    // so exactly one token-surface request fits before the ceiling.
+    const inbox = () => fetch(`${base}/agent/v1/inbox`, { headers: { authorization: `Bearer ${accessToken}` } });
+    assert.equal((await inbox()).status, 200);
+    const throttledInbox = await inbox();
+    assert.equal(throttledInbox.status, 429);
+    assert.equal((await throttledInbox.json()).error, "Operator request rate limit exceeded");
+
+    const a2a = await fetch(`${base}/a2a`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: "1", method: "message/send", params: {} }),
+    });
+    assert.equal(a2a.status, 429);
+    assert.equal((await a2a.json()).error, "Operator request rate limit exceeded");
   } finally {
     if (previous === undefined) delete process.env.OPERATOR_REQUESTS_PER_MINUTE;
     else process.env.OPERATOR_REQUESTS_PER_MINUTE = previous;
