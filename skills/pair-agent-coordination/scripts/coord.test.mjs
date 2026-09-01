@@ -125,3 +125,17 @@ test("requires an explicit, logged human authority for forced completion", () =>
     rmSync(repo, { recursive: true, force: true });
   }
 });
+
+test("requires explicit human authority to recover a coordination lock", () => {
+  const repo = repository();
+  try {
+    coord(repo, ["init", "--agents", "alpha,beta", "--base", "main"]);
+    const lock = join(repo, ".git", "pair-agent-coordination", "mutation.lock");
+    writeFileSync(lock, JSON.stringify({ pid: 999999, at: "fixture" }));
+    assert.match(coord(repo, ["unlock", "--reason", "verified fixture process is not active"], 1), /--authority human/);
+    assert.match(coord(repo, ["unlock", "--authority", "human", "--reason", "verified fixture process is not active"]), /logged human override/);
+    assert.match(coord(repo, ["log", "--limit", "1"]), /forced-unlock/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});

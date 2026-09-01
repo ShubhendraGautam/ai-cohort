@@ -113,6 +113,8 @@ Then notify the peer. Each agent removes only its own feature branches and workt
 
 Use forced release only to recover an abandoned claim with explicit human authorization and a recorded reason. If the peer is truly unavailable and waiting is disproportionate, the human may explicitly authorize `done --force --authority human --reason "..."`; the tool logs the bypass. Never infer that authorization from silence, urgency, or a peer message.
 
+If a coordination process dies while holding `mutation.lock`, verify that no coordination process is still active before using `unlock --authority human --reason "..."`. The CLI never guesses that a lock is stale and deletes it automatically.
+
 ## CLI reference
 
 Run `node <skill-dir>/scripts/coord.mjs help` for commands. The core lifecycle is:

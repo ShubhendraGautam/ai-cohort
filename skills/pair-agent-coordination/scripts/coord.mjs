@@ -8,10 +8,12 @@ import {
   appendFileSync,
   closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -74,28 +76,34 @@ function sleep(milliseconds) {
 
 function withMutationLock(operation) {
   let handle;
+  let lockInode;
+  let staleLooking = false;
   for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       handle = openSync(lockPath, "wx");
       writeFileSync(handle, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
+      lockInode = fstatSync(handle).ino;
       break;
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
       try {
-        if (Date.now() - statSync(lockPath).mtimeMs > 60_000) unlinkSync(lockPath);
+        if (Date.now() - statSync(lockPath).mtimeMs > 60_000) staleLooking = true;
       } catch (staleError) {
         if (staleError.code !== "ENOENT") throw staleError;
       }
       sleep(25);
     }
   }
-  if (handle === undefined) fail("Coordination state stayed locked for 5 seconds; inspect mutation.lock before retrying");
+  if (handle === undefined) {
+    const recovery = staleLooking ? " It is older than 60 seconds; verify no process is active, then use the human-authorized unlock command." : "";
+    fail(`Coordination state stayed locked for 5 seconds.${recovery}`);
+  }
   try {
     return operation();
   } finally {
     closeSync(handle);
     try {
-      unlinkSync(lockPath);
+      if (statSync(lockPath).ino === lockInode) unlinkSync(lockPath);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
@@ -161,7 +169,17 @@ function loadClaim(id) {
 }
 
 function saveClaim(id, claim) {
-  writeFileSync(claimPath(id), `${JSON.stringify(claim, null, 2)}\n`);
+  writeAtomically(claimPath(id), `${JSON.stringify(claim, null, 2)}\n`);
+}
+
+function writeAtomically(path, content) {
+  const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(temporary, content);
+    renameSync(temporary, path);
+  } finally {
+    if (existsSync(temporary)) rmSync(temporary);
+  }
 }
 
 function readClaims() {
@@ -320,6 +338,7 @@ function usage() {
   release <id> --agent A [--force --authority human --reason "explicit override"]
   done <id> --agent A --note "merged into base"
        [--force --authority human --reason "explicit override"]
+  unlock --authority human --reason "verified stale lock"
   send --from A --to B [--re id] --text "..."
   read --agent A [--all] [--wait] [--timeout seconds]
   log [--limit count]
@@ -337,6 +356,17 @@ function main() {
     return;
   }
 
+  if (command === "unlock") {
+    if (flags.authority !== "human") fail("Lock recovery requires --authority human and explicit human authorization");
+    const reason = requireEvidence(flags.reason, 30);
+    if (!existsSync(lockPath)) fail("No mutation.lock exists");
+    const previous = readFileSync(lockPath, "utf8");
+    unlinkSync(lockPath);
+    logEvent({ event: "forced-unlock", authority: "human", reason, previous });
+    console.log("Removed mutation.lock with a logged human override");
+    return;
+  }
+
   if (command === "init") {
     const agents = commaList(flags.agents, validateAgentName);
     if (agents.length !== 2 || new Set(agents).size !== 2) fail("init requires exactly two distinct agents: --agents agent-a,agent-b");
@@ -350,7 +380,7 @@ function main() {
     withMutationLock(() => {
       if (existsSync(configPath)) fail(`Already initialized at ${configPath}`);
       const config = { version: 1, agents, base, ...(queue ? { queue } : {}), shared, initializedAt: now() };
-      writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+      writeAtomically(configPath, `${JSON.stringify(config, null, 2)}\n`);
       logEvent({ event: "init", agents, base, queue, shared });
     });
     console.log(`Initialized ${agents.join(" + ")} on ${base}${queue ? `; queue ${queue}` : ""}; ${shared.length} shared path${shared.length === 1 ? "" : "s"}`);
