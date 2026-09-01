@@ -131,7 +131,10 @@ Three files are chokepoints that both agents will eventually need:
 Before you finish an item, `node scripts/coord.js check --agent <name>` diffs
 your branch against `main` and tells you whether every file you touched is one
 you declared or one of the shared set. It exits non-zero on a file another live
-claim declared. Claims were honoured by convention until this existed, and
+claim declared. It compares commits, so it sees committed work only: run it
+after you commit, not while the change is still in the working tree, or it
+reports nothing changed and reads as a pass. Claims were honoured by convention
+until this existed, and
 convention lost twice in the first session: once when an agent edited a file it
 had not declared, once when two agents edited the same page from different
 items.
