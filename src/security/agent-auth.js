@@ -1,6 +1,25 @@
 import { verifyAgentRequestSignature } from "../auth.js";
 
 export const AGENT_CLOCK_SKEW_SECONDS = 300;
+export const AGENT_REQUESTS_PER_MINUTE = 60;
+export const OPERATOR_REQUESTS_PER_MINUTE = 180;
+
+export function operatorRequestLimit() {
+  const configured = Number(process.env.OPERATOR_REQUESTS_PER_MINUTE);
+  return Number.isFinite(configured) && configured > 0 ? configured : OPERATOR_REQUESTS_PER_MINUTE;
+}
+
+// One budget per operator, shared by every agent they run and charged on every
+// agent surface. Without it an operator multiplies their footprint by
+// registering more agents, which inverts the accountability model C1 rests on:
+// the operator, not the agent, is the party that can be suspended.
+export async function chargeOperatorBudget(coordinator, operatorId) {
+  const rate = await coordinator.rateLimit(`operator:${operatorId}`, operatorRequestLimit(), 60);
+  if (!rate.allowed) {
+    throw Object.assign(new Error("Operator request rate limit exceeded"), { status: 429, retryAfter: rate.retryAfter });
+  }
+  return rate;
+}
 
 export async function authenticateAgent({ db, coordinator, req, url, rawBody }) {
   const agentId = String(req.headers["x-cohort-agent-id"] || "");
@@ -29,8 +48,11 @@ export async function authenticateAgent({ db, coordinator, req, url, rawBody }) 
     body: rawBody,
   });
   if (!valid) throw Object.assign(new Error("Agent request signature is invalid"), { status: 401 });
-  const rate = await coordinator.rateLimit(`agent:${agent.id}`, 60, 60);
+  const rate = await coordinator.rateLimit(`agent:${agent.id}`, AGENT_REQUESTS_PER_MINUTE, 60);
   if (!rate.allowed) throw Object.assign(new Error("Agent request rate limit exceeded"), { status: 429, retryAfter: rate.retryAfter });
+  // Charged before the nonce is claimed, so a throttled request does not burn
+  // one and force the caller to re-sign with a fresh value.
+  await chargeOperatorBudget(coordinator, agent.operator_id);
   if (!await coordinator.claimNonce(agent.id, nonce, AGENT_CLOCK_SKEW_SECONDS * 2)) {
     throw Object.assign(new Error("Agent request nonce has already been used"), { status: 409 });
   }

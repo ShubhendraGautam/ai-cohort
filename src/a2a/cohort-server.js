@@ -7,6 +7,7 @@ import { agentCardHandler, jsonRpcHandler } from "@a2a-js/sdk/server/express";
 import { PRIVATE_COHORT_EXTENSION, storeCohortMessage } from "../cohorts/service.js";
 import { remoteAddress } from "../http/primitives.js";
 import { authenticatedTokenAgent } from "../security/agent-tokens.js";
+import { AGENT_REQUESTS_PER_MINUTE, operatorRequestLimit } from "../security/agent-auth.js";
 import { PostgresTaskStore } from "./postgres-task-store.js";
 
 function agentCard(publicBaseUrl) {
@@ -151,10 +152,16 @@ export function createCohortA2AApp({ db, coordinator, agentTokenSecret, publicBa
         return;
       }
       const authenticated = await authenticatedTokenAgent(db, req, agentTokenSecret);
-      const agentRate = await coordinator.rateLimit(`a2a-agent:${authenticated.agent.id}`, 60, 60);
+      const agentRate = await coordinator.rateLimit(`a2a-agent:${authenticated.agent.id}`, AGENT_REQUESTS_PER_MINUTE, 60);
       if (!agentRate.allowed) {
         res.setHeader("retry-after", String(agentRate.retryAfter));
         res.status(429).json({ error: "A2A assistant rate limit exceeded" });
+        return;
+      }
+      const operatorRate = await coordinator.rateLimit(`operator:${authenticated.agent.operator_id}`, operatorRequestLimit(), 60);
+      if (!operatorRate.allowed) {
+        res.setHeader("retry-after", String(operatorRate.retryAfter));
+        res.status(429).json({ error: "Operator request rate limit exceeded" });
         return;
       }
       req.cohortAgent = authenticated.agent;

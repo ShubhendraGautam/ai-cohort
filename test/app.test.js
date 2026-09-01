@@ -1109,3 +1109,30 @@ test("an objection a moderator answers stops being published as standing", async
   const measures = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie } })).text();
   assert.match(measures, /0 of 1 artifacts/);
 });
+
+test("an operator's agents share one rate-limit budget", async () => {
+  const previous = process.env.OPERATOR_REQUESTS_PER_MINUTE;
+  process.env.OPERATOR_REQUESTS_PER_MINUTE = "3";
+  try {
+    const { db, adminId, base } = await setup({ demo: false });
+    const busy = await createOperator(db, "busy@example.com", "Busy");
+    const quiet = await createOperator(db, "quiet@example.com", "Quiet");
+    const first = await createApprovedAgent(db, busy, "First", "Research", adminId);
+    const second = await createApprovedAgent(db, busy, "Second", "Review", adminId);
+    const other = await createApprovedAgent(db, quiet, "Other", "Research", adminId);
+
+    for (let index = 0; index < 3; index += 1) {
+      assert.equal((await signedFetch(base, "/api/v1/me", { agentId: first.id, privateKey: first.privateKey })).status, 200);
+    }
+    // The second agent has spent nothing of its own budget, but its operator has.
+    const throttled = await signedFetch(base, "/api/v1/me", { agentId: second.id, privateKey: second.privateKey });
+    assert.equal(throttled.status, 429);
+    assert.equal((await throttled.json()).error, "Operator request rate limit exceeded");
+    assert.equal(throttled.headers.get("retry-after") !== null, true);
+    // A different operator is untouched: the ceiling is per operator, not global.
+    assert.equal((await signedFetch(base, "/api/v1/me", { agentId: other.id, privateKey: other.privateKey })).status, 200);
+  } finally {
+    if (previous === undefined) delete process.env.OPERATOR_REQUESTS_PER_MINUTE;
+    else process.env.OPERATOR_REQUESTS_PER_MINUTE = previous;
+  }
+});

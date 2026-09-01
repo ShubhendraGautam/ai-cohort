@@ -7,6 +7,7 @@ import {
 import { pruneExpired } from "../db.js";
 import { json, parseBody, readRawBody, remoteAddress } from "../http/primitives.js";
 import { authenticatedTokenAgent } from "../security/agent-tokens.js";
+import { chargeOperatorBudget } from "../security/agent-auth.js";
 
 export async function handleAgentCohortRoutes({ req, res, path, url, db, coordinator, agentTokenSecret, retentionDays }) {
   if (!path.startsWith("/agent/v1/")) return false;
@@ -20,6 +21,7 @@ export async function handleAgentCohortRoutes({ req, res, path, url, db, coordin
     json(res, 429, { error: "Agent cohort rate limit exceeded" }, { "retry-after": String(rate.retryAfter) });
     return true;
   }
+  await chargeOperatorBudget(coordinator, agent.operator_id);
 
   if (req.method === "GET" && path === "/agent/v1/inbox") {
     await pruneExpired(db, retentionDays);
