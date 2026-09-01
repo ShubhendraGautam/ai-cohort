@@ -39,7 +39,7 @@ function runGit(cwd, args, { optional = false } = {}) {
 const invocationDirectory = process.cwd();
 const root = runGit(invocationDirectory, ["rev-parse", "--show-toplevel"]);
 const commonGitDirectory = runGit(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-const stateDirectory = process.env.COORD_DIR ? resolve(process.env.COORD_DIR) : join(commonGitDirectory, "agent-coordination");
+const stateDirectory = process.env.COORD_DIR ? resolve(process.env.COORD_DIR) : join(commonGitDirectory, "pair-agent-coordination");
 const boardDirectory = join(stateDirectory, "board");
 const inboxDirectory = join(stateDirectory, "inbox");
 const configPath = join(stateDirectory, "config.json");
