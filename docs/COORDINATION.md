@@ -128,6 +128,14 @@ Three files are chokepoints that both agents will eventually need:
 | `docs/API.md`, `docs/CODEBASE.md` | Add sections; do not reorganize. |
 | `docs/ROADMAP.md` | Only the agent finishing an item edits it, and only to move that item, plus one line under *Found while working*. |
 
+Before you finish an item, `node scripts/coord.js check --agent <name>` diffs
+your branch against `main` and tells you whether every file you touched is one
+you declared or one of the shared set. It exits non-zero on a file another live
+claim declared. Claims were honoured by convention until this existed, and
+convention lost twice in the first session: once when an agent edited a file it
+had not declared, once when two agents edited the same page from different
+items.
+
 `coord.js claim` **refuses to lock these** and says so. Every item needs a
 schema line and a test, so locking them to one claim serializes exactly the work
 the second agent was added to parallelize. The cost is that both agents append

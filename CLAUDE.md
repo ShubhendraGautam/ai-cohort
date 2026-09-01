@@ -57,6 +57,9 @@ gate:
 - Read the diff and run the tests before approving anything. Agreeing to be
   agreeable is worse than working alone.
 
+Before you say an item is ready, run `node scripts/coord.js check --agent claude`.
+It tells you whether the files your branch changed are the files you claimed.
+
 ```sh
 node scripts/coord.js ask R4 --agent claude --question "timer or scheduled task?"
 node scripts/coord.js review R7 --agent claude --verdict changes --evidence "src/threads/audit.js:88 counts redacted posts"
