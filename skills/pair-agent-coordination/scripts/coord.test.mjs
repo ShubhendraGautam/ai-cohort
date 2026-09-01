@@ -54,6 +54,9 @@ test("pins readiness and review to a clean, scoped commit", () => {
 
     coord(repo, ["ready", "TASK-1", "--agent", "alpha", "--evidence", "scope check and tests pass"]);
     const head = git(repo, "rev-parse", "HEAD");
+    coord(repo, ["review", "TASK-1", "--agent", "beta", "--verdict", "changes", "--evidence", "Reviewed exact diff; clarify the fixture evidence"]);
+    coord(repo, ["ready", "TASK-1", "--agent", "alpha", "--evidence", "clarified evidence; scope and tests still pass"]);
+    assert.match(coord(repo, ["gate", "TASK-1", "--agent", "alpha"], 1), /lacks peer approval/);
     assert.match(coord(repo, ["review", "TASK-1", "--agent", "beta", "--verdict", "approve", "--evidence", "Reviewed exact diff and passing test evidence"]), new RegExp(head.slice(0, 12)));
     assert.match(coord(repo, ["gate", "TASK-1", "--agent", "alpha"]), /GATE PASS/);
 

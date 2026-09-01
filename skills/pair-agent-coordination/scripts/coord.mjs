@@ -4,6 +4,7 @@
 // Run this file with the target Git repository as the current working directory.
 
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
   closeSync,
@@ -299,7 +300,10 @@ function requireActive(claim, id) {
 function approvalForReady(claim) {
   if (!claim.ready) return null;
   return [...(claim.reviews || [])].reverse().find((review) =>
-    review.verdict === "approve" && review.agent !== claim.agent && review.head === claim.ready.head,
+    review.verdict === "approve"
+      && review.agent !== claim.agent
+      && review.head === claim.ready.head
+      && review.readyId === claim.ready.id,
   );
 }
 
@@ -565,7 +569,7 @@ function main() {
       fail("Scope check failed; resolve it before ready");
     }
     if (!scope.changed.length) fail("Refusing readiness with zero changed files; verify the branch and commit before retrying");
-    const ready = { head: runGit(root, ["rev-parse", "HEAD"]), baseHead: runGit(root, ["rev-parse", config.base]), evidence, at: now() };
+    const ready = { id: randomUUID(), head: runGit(root, ["rev-parse", "HEAD"]), baseHead: runGit(root, ["rev-parse", config.base]), evidence, at: now() };
     withMutationLock(() => {
       const fresh = loadClaim(id);
       fresh.id = id;
@@ -599,7 +603,7 @@ function main() {
     withMutationLock(() => {
       const fresh = loadClaim(id);
       if (!fresh.ready || fresh.ready.head !== head) fail(`${id} readiness changed while review was running`);
-      fresh.reviews = [...(fresh.reviews || []), { agent, verdict, evidence, head, at: now() }];
+      fresh.reviews = [...(fresh.reviews || []), { agent, verdict, evidence, head, readyId: fresh.ready.id, at: now() }];
       if (verdict === "changes") {
         fresh.ready = null;
         fresh.state = "claimed";

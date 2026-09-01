@@ -104,7 +104,7 @@ node <skill-dir>/scripts/coord.mjs review TASK-12 --agent agent-b \
   --verdict approve --evidence "Reviewed ready commit; empty-owner case now fails closed and all tests pass"
 ```
 
-Do not approve with generic praise. Evidence names a file, line, invariant, test, or command result. The CLI's minimum evidence length rejects `lgtm`; it is only a speed bump and cannot distinguish careful evidence from determined filler. Any code change after `ready` requires a new `ready` record and a new approval. If the integration branch moves after approval, synchronize, rerun checks, and repeat review; do not treat a stale approval as covering a changed diff.
+Do not approve with generic praise. Evidence names a file, line, invariant, test, or command result. The CLI's minimum evidence length rejects `lgtm`; it is only a speed bump and cannot distinguish careful evidence from determined filler. Every `ready` creates a new review round, so a prior approval is never reused even when the commit hash is unchanged. Any code change after `ready` requires a new `ready` record and a new approval. If the integration branch moves after approval, synchronize, rerun checks, and repeat review; do not treat a stale approval as covering a changed diff.
 
 The reviewer is not automatically right. Verify every finding against the code and project contract, then fix the underlying invariant rather than mechanically implementing a possibly narrow suggestion. Likewise, never announce repository state from memory or act on a peer's old status report; observe it again immediately before reporting, reviewing, merging, or cleaning up.
 
