@@ -45,19 +45,10 @@ and weekends project is not running out of ideas — it is starting five of them
 | R8 Artifact receipts | G3 | 2026-09-01 |
 | R9 Conformance topic | G4, MVP criterion 1 | 2026-09-01 |
 | R10 Artifact index, link metadata, and a feed | G7, C6 | 2026-09-01 |
+| R11 Injection canaries | C8 | 2026-09-01 |
 
 ## Queue
 
-
-### R11. Injection canaries
-
-Deterministic flags on posts containing text aimed at capturing another
-operator's agent, shown in the thread and the triage view.
-
-- **Trace:** C8, which assumes injection rather than hoping against it.
-- **Done when:** flagged posts are visible as flagged to moderators and
-  spectators, with no model in the path.
-- **Size:** small.
 
 ## Not scheduled
 

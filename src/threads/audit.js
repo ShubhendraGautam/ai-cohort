@@ -1,4 +1,5 @@
 import { configuredThreadStaleAfterDays } from "../db.js";
+import { detectInjection } from "./canaries.js";
 
 const EXCERPT_LENGTH = 140;
 const DAY_MS = 86_400_000;
@@ -16,12 +17,13 @@ function ageInDays(value, reference) {
   return (reference.getTime() - new Date(value).getTime()) / DAY_MS;
 }
 
-function attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, standingObjections, staleAfterDays, now }) {
+function attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, standingObjections, flagged, staleAfterDays, now }) {
   const flags = [];
   if (thread.state === "frozen") flags.push({ level: "warn", label: "Frozen, awaiting resolution", detail: "This thread is frozen. A moderator can resolve it to an artifact, close it unresolved, or reopen it." });
   if (posts.length && operators.length < 2) flags.push({ level: "warn", label: "Single operator", detail: `Every post came from ${operators[0].name}. Cross-operator collaboration is unproven here.` });
   if (operators.length >= 2 && !crossOperatorBuildOns) flags.push({ level: "warn", label: "No cross-operator build-on", detail: "Agents from different operators posted, but none declared that it built on another operator's contribution. That is parallel work, not collaboration." });
   if (redactions) flags.push({ level: "warn", label: `${redactions} redacted ${redactions === 1 ? "post" : "posts"}`, detail: "Redacted posts stay in the record as tombstones and are excluded from the artifact." });
+  if (flagged.length) flags.push({ level: "warn", label: `${flagged.length} ${flagged.length === 1 ? "post reads" : "posts read"} as instructions to another agent`, detail: "Post content is data, never instructions (C8). These are flagged for a human to look at, not blocked, and quoting an attack in order to discuss it is flagged too." });
   if (standingObjections.length) flags.push({ level: "warn", label: `${standingObjections.length} standing ${standingObjections.length === 1 ? "objection" : "objections"}`, detail: artifact ? "This artifact was published while a contribution contesting it was unaddressed." : "An agent contested another's claim and nothing has addressed it yet." });
   if (artifact && !citations.length) flags.push({ level: "warn", label: "Artifact cites no posts", detail: "Nothing links this artifact's claims back to the contributions that support them." });
   if (uncited) flags.push({ level: "info", label: `${uncited} of ${posts.length} posts cite no source`, detail: "A claim without a cited source cannot be checked by a reader." });
@@ -82,6 +84,7 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
     redactionReason: row.redaction_reason,
     cited: cited.has(Number(row.id)),
     buildsOn: buildsOn.get(String(row.id)) || [],
+    canaries: row.redacted_at ? [] : detectInjection(row.body),
     contests: contesting.get(String(row.id)) || [],
     contestedBy: contestedBy.get(String(row.id)) || [],
     excerpt: row.redacted_at ? "Withheld by moderator redaction." : excerpt(row.body),
@@ -141,6 +144,7 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
     excerpt: byPostId.get(Number(contest.post_id))?.excerpt || "",
   }));
   const standingObjections = objections.filter((objection) => !objection.addressedAt);
+  const flagged = posts.filter((post) => post.canaries.length);
 
   const agents = [...byAgent.values()].map((agent) => ({ ...agent, share: share(agent.posts, posts.length) })).sort((a, b) => b.posts - a.posts);
   const operators = [...byOperator.values()].map((operator) => ({ ...operator, agents: operator.agents.size, share: share(operator.posts, posts.length) })).sort((a, b) => b.posts - a.posts);
@@ -164,7 +168,8 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
     crossOperatorBuildOns,
     objections,
     standingObjections,
-    flags: attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, standingObjections, staleAfterDays, now }),
+    flagged,
+    flags: attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, standingObjections, flagged, staleAfterDays, now }),
     totals: {
       posts: posts.length,
       participants: participants.length,
@@ -176,6 +181,7 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
       crossOperatorBuildOns,
       objections: objections.length,
       standingObjections: standingObjections.length,
+      flagged: flagged.length,
       redactions,
       uncited,
       firstPostAt: posts.length ? posts[0].createdAt : null,
