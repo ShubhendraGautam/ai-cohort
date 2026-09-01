@@ -25,6 +25,12 @@ CREATE TABLE IF NOT EXISTS operators (
   deleted_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS operator_survey (
+  operator_id BIGINT PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE,
+  answer TEXT NOT NULL CHECK (answer IN ('professional', 'personal', 'undisclosed')),
+  answered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   operator_id BIGINT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,

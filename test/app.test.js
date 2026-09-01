@@ -878,7 +878,7 @@ test("the instrumentation page computes the project's measures and admits the on
   assert.match(html, /no thread has reached 10 posts/);   // G1 is not claimed on three posts
   assert.match(html, /2 of 2/);                           // criterion 1: two outside operators posted
   assert.match(html, /not measurable yet/);               // criterion 3 waits on post references
-  assert.match(html, /no survey yet/);                    // G5 is unfalsifiable until R3
+  assert.match(html, /nobody has answered yet/);          // G5 has a survey now, and no answers
 });
 
 test("a post declares what it builds on, and only within its own thread", async () => {
@@ -941,4 +941,45 @@ test("a thread where operators never build on each other says so", async () => {
   assert.match(triage, /parallel work, not collaboration/);
   const measures = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie } })).text();
   assert.match(measures, /not met/);
+});
+
+test("an operator is asked once whether they build agents professionally, and may decline", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  await createOperator(db, "one@example.com", "One");
+  await createOperator(db, "two@example.com", "Two");
+  await createOperator(db, "three@example.com", "Three");
+
+  const cookie = await loginAs(base, "one@example.com", "operator-password");
+  const dashboard = await (await fetch(`${base}/dashboard`, { headers: { cookie } })).text();
+  assert.match(dashboard, /Do you build or operate AI agents professionally\?/);
+  const csrf = dashboard.match(/name="csrf" value="([^"]+)"/)[1];
+
+  const unauthenticated = await fetch(`${base}/account/survey`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ answer: "professional" }),
+  });
+  assert.equal(unauthenticated.status, 401);
+  assert.equal((await adminForm(base, cookie, "/account/survey", { csrf, answer: "sideways" })).status, 400);
+
+  const answered = await adminForm(base, cookie, "/account/survey", { csrf, answer: "professional" });
+  assert.equal(answered.status, 200);
+  const afterwards = await (await fetch(`${base}/dashboard`, { headers: { cookie } })).text();
+  assert.doesNotMatch(afterwards, /Do you build or operate AI agents professionally\?/);
+
+  // Asked once: a second submission cannot revise the sample.
+  await adminForm(base, cookie, "/account/survey", { csrf, answer: "personal" });
+  assert.equal((await db.one("SELECT answer FROM operator_survey WHERE operator_id = (SELECT id FROM operators WHERE email = 'one@example.com')")).answer, "professional");
+
+  const second = await loginAs(base, "two@example.com", "operator-password");
+  await adminForm(base, second, "/account/survey", { csrf: await csrfFor(base, second), answer: "undisclosed" });
+
+  const adminCookie = await login(base);
+  const measures = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie: adminCookie } })).text();
+  assert.match(measures, /100% of 1 who answered/);
+  assert.match(measures, /2 of 3 registered operators answered the question and 1 declined/);
+
+  // Deleting an operator takes their answer with them.
+  const target = await db.one("SELECT id FROM operators WHERE email = 'two@example.com'");
+  await adminForm(base, adminCookie, `/admin/operators/${target.id}/delete`, { csrf: await csrfFor(base, adminCookie) });
+  assert.equal((await db.one("SELECT COUNT(*)::int AS count FROM operator_survey WHERE operator_id = $1", [target.id])).count, 0);
 });

@@ -154,6 +154,7 @@ export async function handleAdminRoutes(context) {
       await db.query("DELETE FROM sessions WHERE operator_id = $1", [id], client);
       await db.query("UPDATE agents SET status = 'suspended' WHERE operator_id = $1", [id], client);
       await closeCohortsForOperator(db, id, client);
+      await db.query("DELETE FROM operator_survey WHERE operator_id = $1", [id], client);
       await db.query("UPDATE operators SET email = $1, name = 'Deleted operator', status = 'deleted', deleted_at = NOW(), mfa_secret_ciphertext = NULL, mfa_pending_ciphertext = NULL, mfa_recovery_hashes = '[]'::jsonb WHERE id = $2", [`deleted-${id}@invalid.local`, id], client);
       await audit(db, operator.id, "delete-and-anonymize", "operator", id, null, {}, client);
     });

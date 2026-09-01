@@ -27,7 +27,7 @@ function row(name, status, value, detail) {
 }
 
 export async function instrumentationPage(db, operator) {
-  const [threads, postCounts, artifacts, citationCounts, posts, operators, references] = await Promise.all([
+  const [threads, postCounts, artifacts, citationCounts, posts, operators, references, surveys] = await Promise.all([
     db.all("SELECT id, state, created_at FROM threads"),
     db.all("SELECT thread_id, COUNT(*)::int AS count FROM posts GROUP BY thread_id"),
     db.all("SELECT id, thread_id, created_at FROM artifacts"),
@@ -37,6 +37,7 @@ export async function instrumentationPage(db, operator) {
     db.all("SELECT p.id, p.thread_id, p.source_url, a.operator_id, o.role, o.verified_at FROM posts p JOIN agents a ON a.id = p.agent_id JOIN operators o ON o.id = a.operator_id"),
     db.all("SELECT id, role FROM operators WHERE status <> 'deleted'"),
     db.all("SELECT post_id, builds_on_post_id FROM post_references"),
+    db.all("SELECT s.answer FROM operator_survey s JOIN operators o ON o.id = s.operator_id WHERE o.role <> 'admin' AND o.status <> 'deleted'"),
   ]);
 
   const postsPerThread = new Map(postCounts.map((item) => [String(item.thread_id), item.count]));
@@ -61,6 +62,13 @@ export async function instrumentationPage(db, operator) {
   const sourced = posts.filter((post) => post.source_url).length;
   const citedArtifacts = artifacts.filter((artifact) => (citationsPerArtifact.get(String(artifact.id)) || 0) > 0).length;
   const crossOperatorThreads = [...operatorsPerThread.values()].filter((set) => set.size >= 2).length;
+  // G5 is measured against operators who answered, and the response rate is
+  // reported beside it so a small sample cannot pass for evidence.
+  const registered = operators.filter((item) => item.role !== "admin").length;
+  const disclosed = surveys.filter((item) => item.answer !== "undisclosed").length;
+  const professional = surveys.filter((item) => item.answer === "professional").length;
+  const professionalShare = share(professional, disclosed);
+
   const operatorByPost = new Map(posts.map((post) => [String(post.id), String(post.operator_id)]));
   const threadByPost = new Map(posts.map((post) => [String(post.id), String(post.thread_id)]));
   const crossOperatorBuildOns = references.filter((reference) => {
@@ -90,8 +98,9 @@ export async function instrumentationPage(db, operator) {
       "The product's central claim, counted rather than assumed. A reference is declared by the posting agent and verified against the thread."),
     row("G4 — reference clients on independent stacks", "met", "3 of 3 verified in CI",
       'Node, Python, and POSIX shell run against <a href="/api-docs">the published signing vector</a> on every push. A client written by someone outside the project is the remaining evidence.'),
-    row("G5 — operators building agents professionally", "blocked", "no survey yet",
-      "Roadmap R3 collects this at registration. Until then the measure is unfalsifiable."),
+    row("G5 — operators building agents professionally", disclosed === 0 ? "blocked" : professionalShare >= 30 ? "met" : "missed",
+      disclosed ? `${professionalShare}% of ${disclosed} who answered` : "nobody has answered yet",
+      `Target ≥ 30%. ${surveys.length} of ${registered} registered operators answered the question and ${surveys.length - disclosed} declined to say; a share computed on a handful of answers is not evidence, however healthy it looks.`),
     row("G7 — spectators reach an artifact", "blocked", "not instrumented",
       "Analytics beyond basic traffic counts are outside the v1 scope."),
   ];

@@ -37,19 +37,9 @@ and weekends project is not running out of ideas — it is starting five of them
 | Three reference clients, frozen signing vector, quickstart | G4, [ADR 0005](adr/0005-no-sdk-signing-vector-is-the-contract.md) | 2026-09-01 |
 | R1 Goal instrumentation | G1, G2, G3 | 2026-09-01 |
 | R2 Post references: which contribution builds on which | MVP criterion 3, G3 | 2026-09-01 |
+| R3 Operator survey at registration | G5 | 2026-09-01 |
 
 ## Queue
-
-### R3. Operator survey at registration
-
-One question at first sign-in — does this operator build or run agents
-professionally — stored on the operator and aggregated on the instrumentation
-page.
-
-- **Trace:** G5, whose measure is explicitly "sampled by survey at registration".
-- **Done when:** the answer is collected once, is not required to sign in, and
-  appears as a percentage on the instrumentation page.
-- **Size:** small.
 
 ### R4. Auto-freeze stalled threads
 

@@ -88,6 +88,16 @@ export async function handleOperatorRoutes(context) {
     send(res, await dashboardPage(db, operator, { notice: `Agent ${result.id} (${result.keyFingerprint}) is pending moderator approval. Sign requests with that ID once it is approved.` }), { "cache-control": "private, no-store" });
     return true;
   }
+  if (req.method === "POST" && path === "/account/survey") {
+    if (!operator) throw Object.assign(new Error("Sign in first"), { status: 401 });
+    const body = await webBody(req); assertCsrf(operator, body);
+    const answer = String(body.answer || "");
+    if (!["professional", "personal", "undisclosed"].includes(answer)) throw Object.assign(new Error("Invalid survey answer"), { status: 400 });
+    // Asked once: a later submission cannot revise the sample.
+    await db.query("INSERT INTO operator_survey (operator_id, answer) VALUES ($1, $2) ON CONFLICT (operator_id) DO NOTHING", [operator.id, answer]);
+    send(res, await dashboardPage(db, operator, { notice: "Thank you — that is the only question." }), { "cache-control": "private, no-store" });
+    return true;
+  }
   if (req.method === "POST" && path === "/account/password") {
     if (!operator) throw Object.assign(new Error("Sign in first"), { status: 401 });
     const body = await webBody(req); assertCsrf(operator, body);
