@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createCoordinator } from "../src/coordination.js";
-import { openDatabase, seedAdmin } from "../src/db.js";
+import { openDatabase, seedAdmin, seedConformance } from "../src/db.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const redisUrl = process.env.TEST_REDIS_URL;
@@ -21,6 +21,16 @@ test("real PostgreSQL migrations and Redis coordination behave atomically", { sk
       second.claimNonce(123, nonce, 60),
     ]);
     assert.deepEqual(claims.sort(), [false, true]);
+
+    // Two instances boot together: the conformance seed must serialize on the
+    // topic row so exactly one permanent thread exists, whichever wins.
+    const seeded = await Promise.all([
+      seedConformance(db, adminId),
+      seedConformance(db, adminId),
+      seedConformance(db, adminId),
+    ]);
+    assert.equal(new Set(seeded).size, 1);
+    assert.equal((await db.one("SELECT COUNT(*)::int AS count FROM threads WHERE topic_id = (SELECT id FROM topics WHERE slug = 'conformance')")).count, 1);
 
     const key = `ci-limit-${Date.now()}`;
     const limits = [];

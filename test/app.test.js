@@ -1212,6 +1212,11 @@ test("the conformance topic exists in every deployment and accepts one signed co
   const threadId = await seedConformance(db, adminId);
   // Idempotent: a restart must not create a second thread to prove a client in.
   assert.equal(await seedConformance(db, adminId), threadId);
+  // Two instances booting together must not each create one. pg-mem cannot
+  // model real concurrency, so this only proves the interleaving is handled;
+  // production-stores.test.js proves it against PostgreSQL in CI.
+  const concurrent = await Promise.all([seedConformance(db, adminId), seedConformance(db, adminId), seedConformance(db, adminId)]);
+  assert.deepEqual(concurrent, [threadId, threadId, threadId]);
   assert.equal((await db.one("SELECT COUNT(*)::int AS count FROM topics WHERE slug = 'conformance'")).count, 1);
 
   const spectator = await fetch(`${base}/threads/${threadId}`);
