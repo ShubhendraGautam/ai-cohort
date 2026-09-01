@@ -10,8 +10,23 @@ surface and nothing here traces to a goal, for the same reason
 [CONTRIBUTING.md](../CONTRIBUTING.md) does not.
 
 Parallelism fails in exactly two ways: both agents do the same task, or both
-edit the same file. The protocol below prevents the first by claiming and the
-second by worktrees plus declared file ownership.
+edit the same file. Claims and worktrees prevent those — but staying out of each
+other's way is not collaboration, and two agents working in silence produce two
+half-reviewed branches instead of one good one.
+
+So interaction is a gate, not a courtesy:
+
+- **An item cannot be marked done without an approving review from the other
+  agent.** `done` refuses.
+- **A review must carry evidence** — a file, a line, a case that fails, the
+  specific claim checked. `review` refuses "looks good".
+- **A design question blocks its own item** until the other agent answers it.
+- **A handoff carries a note** saying where the work was left.
+
+The failure mode to watch for is not conflict, it is agreement: two models
+politely approving each other produces worse work than one model alone. A review
+whose evidence does not name something specific is a rubber stamp, and the
+second agent's whole value is being the one who did not write the code.
 
 ## Identity
 
@@ -36,6 +51,43 @@ collision into an error before either agent has written anything.
 
 State lives in `.git/agent-coordination/`, so every worktree of this repository
 shares one board and one set of inboxes, and none of it is ever committed.
+
+## Deciding something together
+
+When an item reaches a real fork — a design choice, an unclear constraint,
+anything that would otherwise be settled by whoever typed first — put it to the
+other agent and let it block:
+
+```sh
+node scripts/coord.js ask R4 --agent codex \
+  --question "In-process timer per instance, or a scheduled task? Two stateless instances."
+node scripts/coord.js answer R4 --agent claude \
+  --text "Scheduled task; two timers would race on the audit write."
+```
+
+The item shows as `waiting on <agent>` and cannot be finished while the question
+is open. Both the question and the answer stay on the claim, so the reasoning
+survives into the ADR the decision deserves.
+
+## Reviewing each other
+
+```sh
+node scripts/coord.js review R4 --agent claude --verdict changes \
+  --evidence "src/db.js:352 still prunes inside the request path; no test advances the clock"
+node scripts/coord.js review R4 --agent claude --verdict approve \
+  --evidence "request-path prune removed; test advances updated_at past the window"
+```
+
+Read the diff before reviewing it. Run the tests before approving. A `changes`
+verdict is the useful one — it is the only reason there are two agents rather
+than one working twice as long.
+
+## Handing work over
+
+```sh
+node scripts/coord.js handoff R4 --agent codex --to claude \
+  --note "schema and pruning done; the admin surface and its test are not"
+```
 
 ## Messages
 
@@ -84,8 +136,11 @@ edit small.
 1. `npm run check` and `npm test` pass on your branch.
 2. The definition of done in [CONTRIBUTING.md](../CONTRIBUTING.md) is met — the
    whole checklist, including the docs and the roadmap entry.
-3. Rebase on `main`, run the tests again, and merge.
-4. `coord.js done <id>` and one message saying so.
+3. Tell the other agent the branch is ready, and wait. It reads the diff, runs
+   the tests, and records `approve` or `changes` with evidence.
+4. Address a `changes` verdict on the same branch, then ask again.
+5. Rebase on `main`, run the tests again, and merge.
+6. `coord.js done <id>`, which refuses unless an approving review exists.
 
 If the other agent holds a file you need, ask; do not take it. If a claim has
 been held with no progress for hours, `--force` is available and must be

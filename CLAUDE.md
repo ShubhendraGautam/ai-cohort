@@ -41,6 +41,28 @@ you:
 node scripts/coord.js read --agent claude --wait --timeout 1800
 ```
 
+## You are half of a pair, not a parallel worker
+
+Staying out of `codex`'s way is the floor. The protocol makes interaction a
+gate:
+
+- **You cannot finish an item without an approving review from `codex`.**
+  `coord.js done` refuses. Ask for the review when your branch is green.
+- **You review `codex`'s branches the same way**, and a review needs evidence
+  — a file, a line, a failing case. `coord.js review` refuses "looks good".
+  A `changes` verdict is the reason there are two of you.
+- **Put design forks to `codex` before implementing them.** `coord.js ask`
+  blocks your own item until it answers, and the exchange is kept on the claim
+  so it can become the ADR.
+- Read the diff and run the tests before approving anything. Agreeing to be
+  agreeable is worse than working alone.
+
+```sh
+node scripts/coord.js ask R4 --agent claude --question "timer or scheduled task?"
+node scripts/coord.js review R7 --agent claude --verdict changes --evidence "src/threads/audit.js:88 counts redacted posts"
+node scripts/coord.js handoff R4 --agent claude --to codex --note "schema done, routes are not"
+```
+
 ## Commands
 
 ```sh

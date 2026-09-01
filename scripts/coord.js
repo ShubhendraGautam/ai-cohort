@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 // Coordination channel between agents working this repository in parallel.
 //
-// Two things only: exclusive claims on roadmap items, and messages between
-// agents. State lives under .agents/ and is deliberately not committed, so two
-// agents on two branches never conflict over the coordination itself.
+// Claims keep two agents off each other's files. The rest of this tool exists
+// because keeping out of each other's way is not collaboration: an item cannot
+// be marked done without an approving review from the *other* agent, a design
+// question blocks its item until the other agent answers it, and a review has
+// to carry evidence. Deconfliction is the floor, not the point.
 //
 //   node scripts/coord.js status          # state lives in .git/agent-coordination
 //   node scripts/coord.js claim R4 --agent codex --branch feat/r4 --files src/db.js,src/routes/admin-routes.js
 //   node scripts/coord.js send --to codex --from claude "R4 is yours; I am on R3."
 //   node scripts/coord.js read --agent codex --wait
+//   node scripts/coord.js ask R4 --agent codex --question "timer or scheduled task?"
+//   node scripts/coord.js answer R4 --agent claude --text "scheduled task, because ..."
+//   node scripts/coord.js review R4 --agent claude --verdict changes --evidence "src/db.js:352 prunes inside the request path"
 //   node scripts/coord.js done R4 --agent codex --note "merged into main"
 //
 // Exclusivity is enforced twice: a claim file is created with O_EXCL so two
@@ -98,6 +103,21 @@ function overlapping(files, claims) {
   return null;
 }
 
+function loadClaim(id) {
+  if (!existsSync(claimPath(id))) fail(`${id} is not claimed`);
+  return JSON.parse(readFileSync(claimPath(id), "utf8"));
+}
+
+function saveClaim(id, claim) {
+  writeFileSync(claimPath(id), JSON.stringify(claim, null, 2));
+}
+
+// The other side of the conversation. Two agents work this repository; if that
+// ever changes, this is the one place that assumes it.
+function counterpart(agent) {
+  return agent === "claude" ? "codex" : "claude";
+}
+
 function inboxPath(agent) {
   if (!/^[a-z0-9-]{1,32}$/.test(agent)) fail("Agent name must be lowercase letters, digits, or dashes");
   return join(inboxDir, `${agent}.jsonl`);
@@ -136,7 +156,9 @@ if (command === "status") {
   for (const item of queue) {
     const claim = byId.get(item.id);
     const state = claim ? claim.state : "open";
-    console.log(`${item.id.padEnd(5)} ${state.padEnd(9)} ${(claim?.agent || "-").padEnd(8)} ${(claim?.branch || "-").padEnd(26)} ${item.title}`);
+    const reviews = (claim?.reviews || []).map((review) => `${review.agent}:${review.verdict}`).join(",");
+    const note = claim?.openQuestion ? `waiting on ${claim.waitingOn}` : reviews || (claim ? "needs review" : "");
+    console.log(`${item.id.padEnd(5)} ${state.padEnd(9)} ${(claim?.agent || "-").padEnd(8)} ${(claim?.branch || "-").padEnd(26)} ${item.title}${note ? `  [${note}]` : ""}`);
   }
   for (const claim of claims.filter((item) => !queue.some((queued) => queued.id === item.id))) {
     console.log(`${claim.id.padEnd(5)} ${claim.state.padEnd(9)} ${claim.agent.padEnd(8)} ${(claim.branch || "-").padEnd(26)} (not in roadmap queue)`);
@@ -161,12 +183,71 @@ if (command === "status") {
   closeSync(handle);
   logEvent({ event: "claim", id: target, ...record });
   console.log(`${agent} holds ${target}${files.length ? ` over ${files.join(", ")}` : ""}`);
+} else if (command === "ask") {
+  if (!target || !agent) fail('usage: ask <id> --agent <name> --question "..."');
+  const question = flags.question ? String(flags.question) : positional.slice(1).join(" ");
+  if (!question) fail("An open question needs text");
+  const claim = loadClaim(target);
+  const other = counterpart(agent);
+  claim.openQuestion = { from: agent, question, at: new Date().toISOString() };
+  claim.waitingOn = other;
+  saveClaim(target, claim);
+  appendFileSync(inboxPath(other), `${JSON.stringify({ at: new Date().toISOString(), from: agent, to: other, re: target, text: `QUESTION on ${target}: ${question}` })}\n`);
+  logEvent({ event: "ask", id: target, agent, question });
+  console.log(`${target} is now waiting on ${other}`);
+} else if (command === "answer") {
+  if (!target || !agent) fail('usage: answer <id> --agent <name> --text "..."');
+  const text = flags.text ? String(flags.text) : positional.slice(1).join(" ");
+  if (!text) fail("An answer needs text");
+  const claim = loadClaim(target);
+  if (!claim.openQuestion) fail(`${target} has no open question`);
+  if (claim.openQuestion.from === agent) fail("Answer the other agent's question, not your own");
+  claim.answers = [...(claim.answers || []), { from: agent, text, to: claim.openQuestion.question, at: new Date().toISOString() }];
+  delete claim.openQuestion;
+  delete claim.waitingOn;
+  saveClaim(target, claim);
+  appendFileSync(inboxPath(claim.agent), `${JSON.stringify({ at: new Date().toISOString(), from: agent, to: claim.agent, re: target, text: `ANSWER on ${target}: ${text}` })}\n`);
+  logEvent({ event: "answer", id: target, agent });
+  console.log(`${target} unblocked; ${claim.agent} notified`);
+} else if (command === "review") {
+  if (!target || !agent) fail('usage: review <id> --agent <name> --verdict approve|changes --evidence "file:line or a failing case"');
+  const verdict = String(flags.verdict || "");
+  if (!["approve", "changes"].includes(verdict)) fail("A review verdict is approve or changes");
+  const evidence = flags.evidence ? String(flags.evidence).trim() : "";
+  if (evidence.length < 15) fail("A review carries evidence: a file, a line, a case that fails, or the specific claim you checked. 'Looks good' is not a review.");
+  const claim = loadClaim(target);
+  if (claim.agent === agent) fail("Review the other agent's work, not your own");
+  claim.reviews = [...(claim.reviews || []), { agent, verdict, evidence, at: new Date().toISOString() }];
+  saveClaim(target, claim);
+  appendFileSync(inboxPath(claim.agent), `${JSON.stringify({ at: new Date().toISOString(), from: agent, to: claim.agent, re: target, text: `REVIEW ${verdict.toUpperCase()} on ${target}: ${evidence}` })}\n`);
+  logEvent({ event: "review", id: target, agent, verdict });
+  console.log(`${verdict} recorded on ${target}; ${claim.agent} notified`);
+} else if (command === "handoff") {
+  if (!target || !agent || !flags.to) fail('usage: handoff <id> --agent <name> --to <name> --note "where you left it"');
+  const claim = loadClaim(target);
+  if (claim.agent !== agent) fail(`${target} is held by ${claim.agent}`);
+  const to = String(flags.to);
+  const note = flags.note ? String(flags.note) : "";
+  if (!note) fail("A handoff carries a note saying where you left it");
+  claim.agent = to;
+  claim.handoffs = [...(claim.handoffs || []), { from: agent, to, note, at: new Date().toISOString() }];
+  saveClaim(target, claim);
+  appendFileSync(inboxPath(to), `${JSON.stringify({ at: new Date().toISOString(), from: agent, to, re: target, text: `HANDOFF of ${target}: ${note}` })}\n`);
+  logEvent({ event: "handoff", id: target, from: agent, to });
+  console.log(`${target} handed to ${to}`);
 } else if (command === "release" || command === "done") {
   if (!target || !agent) fail(`usage: ${command} <id> --agent <name> [--note <text>]`);
   if (!existsSync(claimPath(target))) fail(`${target} is not claimed`);
   const existing = JSON.parse(readFileSync(claimPath(target), "utf8"));
   if (existing.agent !== agent && !flags.force) fail(`${target} is held by ${existing.agent}; pass --force to take it`);
   const note = flags.note ? String(flags.note) : null;
+  if (command === "done") {
+    if (existing.openQuestion) fail(`${target} still has an open question for ${existing.waitingOn}`);
+    const approved = (existing.reviews || []).some((review) => review.verdict === "approve" && review.agent !== existing.agent);
+    if (!approved && !flags.force) {
+      fail(`${target} has no approving review from another agent. Ask for one:\n  node scripts/coord.js send --to ${counterpart(agent)} --from ${agent} "${target} is ready for review on <branch>" --re ${target}`);
+    }
+  }
   if (command === "release") rmSync(claimPath(target));
   else writeFileSync(claimPath(target), JSON.stringify({ ...existing, state: "done", doneAt: new Date().toISOString(), note }, null, 2));
   logEvent({ event: command, id: target, agent, note });
@@ -209,8 +290,12 @@ if (command === "status") {
 
   status                                        the board and unread counts
   claim <id> --agent A [--branch B --files F]   take an item, exclusively
+  ask <id> --agent A --question "..."           block the item on the other agent
+  answer <id> --agent B --text "..."            unblock it
+  review <id> --agent B --verdict approve|changes --evidence "..."
+  handoff <id> --agent A --to B --note "..."    pass it over with context
   release <id> --agent A                        give it back
-  done <id> --agent A [--note N]                mark it finished
+  done <id> --agent A [--note N]                finish; needs an approving review
   send --to B --from A "text" [--re <id>]       message another agent
   read --agent A [--wait] [--all] [--timeout s] read your inbox; --wait blocks
   log [--limit N]                               recent coordination events`);

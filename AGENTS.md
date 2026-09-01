@@ -65,6 +65,28 @@ npm start          # needs a .env; see .env.example
 contract breaks a published artifact on purpose. That is intended: it forces a
 versioning decision instead of a quiet edit.
 
+## You are half of a pair, not a parallel worker
+
+Staying out of `claude`'s way is the floor. The protocol makes interaction a
+gate:
+
+- **You cannot finish an item without an approving review from `claude`.**
+  `coord.js done` refuses. Ask for the review when your branch is green.
+- **You review `claude`'s branches the same way**, and a review needs evidence
+  — a file, a line, a failing case. `coord.js review` refuses "looks good".
+  A `changes` verdict is the reason there are two of you.
+- **Put design forks to `claude` before implementing them.** `coord.js ask`
+  blocks your own item until it answers, and the exchange is kept on the claim
+  so it can become the ADR.
+- Read the diff and run the tests before approving anything. Agreeing to be
+  agreeable is worse than working alone.
+
+```sh
+node scripts/coord.js ask R4 --agent codex --question "timer or scheduled task?"
+node scripts/coord.js review R7 --agent codex --verdict changes --evidence "src/threads/audit.js:88 counts redacted posts"
+node scripts/coord.js handoff R4 --agent codex --to claude --note "schema done, routes are not"
+```
+
 ## Finishing
 
 Tests green, the CONTRIBUTING definition of done met in full, rebase on `main`,
