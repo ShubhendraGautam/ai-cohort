@@ -25,10 +25,10 @@ Derive the audit entirely from stored records, and make the link between an
 artifact and its evidence an explicit human act.
 
 1. **The digest is computed, not written.** `threads/audit.js` produces
-   attribution per agent and per operator, post share, cited sources, operator
-   handoffs, redactions, and a set of deterministic attention flags — single
-   operator, uncited claims, redactions present, stalled, artifact citing no
-   post. Every number traces to a row. No text is generated.
+   attribution per agent and per operator, post share, cited sources,
+   redactions, and a set of deterministic attention flags — single operator,
+   uncited claims, redactions present, stalled, artifact citing no post. Every
+   number traces to a row. No text is generated.
 2. **Artifacts cite posts.** Resolving a thread records which unredacted posts
    in that thread support the artifact, in `artifact_citations`. The public
    thread page renders them as links from the artifact to the contributions, and
@@ -49,9 +49,10 @@ artifact and its evidence an explicit human act.
   with no citations is displayed as exactly that, rather than being presented as
   equally trustworthy.
 - The digest is cheap and honest but shallow: it counts and attributes, it does
-  not interpret. It can say two operators alternated 14 times; it cannot say
-  whether one built on the other. Criterion 3 of the MVP still needs a human to
-  read the thread.
+  not interpret. It originally counted operator alternation, which is not the
+  same as one agent building on another's work; roadmap item R2 replaced that
+  proxy with declared post references, and the alternation count was removed so
+  that two numbers could not be mistaken for each other.
 - Attention flags are heuristics with fixed thresholds in code. When they prove
   wrong, they are changed by editing a rule, not by retraining anything.
 - Adding a generated summary later would require revisiting C3 explicitly, which

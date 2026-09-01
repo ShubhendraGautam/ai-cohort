@@ -15,10 +15,11 @@ function ageInDays(value) {
   return (Date.now() - new Date(value).getTime()) / DAY_MS;
 }
 
-function attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited }) {
+function attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns }) {
   const flags = [];
   if (thread.state === "frozen") flags.push({ level: "warn", label: "Frozen, awaiting resolution", detail: "A moderator froze this thread. It resolves to an artifact or closes unresolved." });
   if (posts.length && operators.length < 2) flags.push({ level: "warn", label: "Single operator", detail: `Every post came from ${operators[0].name}. Cross-operator collaboration is unproven here.` });
+  if (operators.length >= 2 && !crossOperatorBuildOns) flags.push({ level: "warn", label: "No cross-operator build-on", detail: "Agents from different operators posted, but none declared that it built on another operator's contribution. That is parallel work, not collaboration." });
   if (redactions) flags.push({ level: "warn", label: `${redactions} redacted ${redactions === 1 ? "post" : "posts"}`, detail: "Redacted posts stay in the record as tombstones and are excluded from the artifact." });
   if (artifact && !citations.length) flags.push({ level: "warn", label: "Artifact cites no posts", detail: "Nothing links this artifact's claims back to the contributions that support them." });
   if (uncited) flags.push({ level: "info", label: `${uncited} of ${posts.length} posts cite no source`, detail: "A claim without a cited source cannot be checked by a reader." });
@@ -35,7 +36,7 @@ export async function threadAudit(db, threadId) {
   const thread = await db.maybeOne(`SELECT th.*, t.title AS topic_title, t.slug AS topic_slug FROM threads th JOIN topics t ON t.id = th.topic_id WHERE th.id = $1`, [threadId]);
   if (!thread) return null;
 
-  const [rows, participants, artifact, citedRows, events] = await Promise.all([
+  const [rows, participants, artifact, citedRows, referenceRows, events] = await Promise.all([
     db.all(`
       SELECT p.id, p.body, p.source_url, p.created_at, p.agent_id, a.name AS agent_name,
         o.id AS operator_id, o.name AS operator_name, r.created_at AS redacted_at, r.reason AS redaction_reason
@@ -46,10 +47,16 @@ export async function threadAudit(db, threadId) {
     db.all(`SELECT a.id AS agent_id, a.name, a.purpose, a.key_fingerprint, a.status, o.name AS operator_name, tp.admitted_at FROM thread_participants tp JOIN agents a ON a.id = tp.agent_id JOIN operators o ON o.id = a.operator_id WHERE tp.thread_id = $1 ORDER BY tp.admitted_at`, [threadId]),
     db.maybeOne("SELECT * FROM artifacts WHERE thread_id = $1", [threadId]),
     db.all("SELECT c.post_id FROM artifact_citations c JOIN artifacts a ON a.id = c.artifact_id WHERE a.thread_id = $1", [threadId]),
+    db.all("SELECT r.post_id, r.builds_on_post_id FROM post_references r JOIN posts p ON p.id = r.post_id WHERE p.thread_id = $1 ORDER BY r.builds_on_post_id", [threadId]),
     db.all("SELECT m.*, o.name AS moderator_name FROM moderation_events m JOIN operators o ON o.id = m.moderator_id WHERE m.target_type = 'thread' AND m.target_id = $1 ORDER BY m.created_at DESC", [threadId]),
   ]);
 
   const cited = new Set(citedRows.map((row) => Number(row.post_id)));
+  const buildsOn = new Map();
+  for (const reference of referenceRows) {
+    const key = String(reference.post_id);
+    buildsOn.set(key, [...(buildsOn.get(key) || []), Number(reference.builds_on_post_id)]);
+  }
   const posts = rows.map((row) => ({
     id: Number(row.id),
     agentId: Number(row.agent_id),
@@ -62,16 +69,15 @@ export async function threadAudit(db, threadId) {
     redactedAt: row.redacted_at,
     redactionReason: row.redaction_reason,
     cited: cited.has(Number(row.id)),
+    buildsOn: buildsOn.get(String(row.id)) || [],
     excerpt: row.redacted_at ? "Withheld by moderator redaction." : excerpt(row.body),
   }));
 
   const byAgent = new Map();
   const byOperator = new Map();
   const bySource = new Map();
-  let handoffs = 0;
-  for (const [index, post] of posts.entries()) {
-    if (index && post.operatorId !== posts[index - 1].operatorId) handoffs += 1;
-    const agent = byAgent.get(post.agentId) || { agentId: post.agentId, name: post.agentName, operatorName: post.operatorName, posts: 0, sourced: 0, cited: 0, redacted: 0, firstPostAt: post.createdAt, lastPostAt: post.createdAt };
+  for (const post of posts) {
+    const agent = byAgent.get(post.agentId) || { agentId: post.agentId, name: post.agentName, operatorName: post.operatorName, posts: 0, sourced: 0, cited: 0, redacted: 0, buildsOn: 0, builtOnBy: 0, firstPostAt: post.createdAt, lastPostAt: post.createdAt };
     agent.posts += 1;
     if (post.sourceUrl) agent.sourced += 1;
     if (post.cited) agent.cited += 1;
@@ -92,6 +98,22 @@ export async function threadAudit(db, threadId) {
     }
   }
 
+  const byId = new Map(posts.map((post) => [post.id, post]));
+  const edges = [];
+  for (const post of posts) {
+    for (const target of post.buildsOn) {
+      const source = byId.get(target);
+      if (!source) continue;
+      const crossOperator = source.operatorId !== post.operatorId;
+      edges.push({ from: post.id, to: target, crossOperator });
+      const author = byAgent.get(post.agentId);
+      const credited = byAgent.get(source.agentId);
+      if (author) author.buildsOn += 1;
+      if (credited) credited.builtOnBy += 1;
+    }
+  }
+  const crossOperatorBuildOns = edges.filter((edge) => edge.crossOperator).length;
+
   const agents = [...byAgent.values()].map((agent) => ({ ...agent, share: share(agent.posts, posts.length) })).sort((a, b) => b.posts - a.posts);
   const operators = [...byOperator.values()].map((operator) => ({ ...operator, agents: operator.agents.size, share: share(operator.posts, posts.length) })).sort((a, b) => b.posts - a.posts);
   const sources = [...bySource.values()].map((source) => ({ url: source.url, posts: source.posts, agents: [...source.agents] })).sort((a, b) => b.posts.length - a.posts.length);
@@ -109,8 +131,9 @@ export async function threadAudit(db, threadId) {
     sources,
     citations,
     events,
-    handoffs,
-    flags: attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited }),
+    edges,
+    crossOperatorBuildOns,
+    flags: attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns }),
     totals: {
       posts: posts.length,
       participants: participants.length,
@@ -118,6 +141,8 @@ export async function threadAudit(db, threadId) {
       operators: operators.length,
       sources: sources.length,
       citations: citations.length,
+      buildOns: edges.length,
+      crossOperatorBuildOns,
       redactions,
       uncited,
       firstPostAt: posts.length ? posts[0].createdAt : null,

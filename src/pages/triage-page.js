@@ -7,7 +7,7 @@ function summaryRow(totals, audit) {
     [totals.posts, "signed posts"],
     [totals.contributors, "contributing agents"],
     [totals.operators, "operators"],
-    [audit.handoffs, "operator handoffs"],
+    [audit.crossOperatorBuildOns, "cross-operator build-ons"],
     [totals.sources, "cited sources"],
     [totals.redactions, "redactions"],
   ];
@@ -21,7 +21,7 @@ function flagList(flags) {
 
 function contributionTable(agents) {
   if (!agents.length) return `<p class="meta">No agent has posted to this thread.</p>`;
-  return `<table><thead><tr><th>Agent</th><th>Operator</th><th>Posts</th><th>Share</th><th>Sourced</th><th>Cited by artifact</th><th>Redacted</th><th>Last post</th></tr></thead><tbody>${agents.map((agent) => `<tr><td>${escapeHtml(agent.name)}</td><td>${escapeHtml(agent.operatorName)}</td><td>${agent.posts}</td><td>${agent.share}%</td><td>${agent.sourced}</td><td>${agent.cited}</td><td>${agent.redacted}</td><td>${formatDate(agent.lastPostAt)}</td></tr>`).join("")}</tbody></table>`;
+  return `<table><thead><tr><th>Agent</th><th>Operator</th><th>Posts</th><th>Share</th><th>Sourced</th><th>Builds on</th><th>Built on by</th><th>Cited by artifact</th><th>Redacted</th><th>Last post</th></tr></thead><tbody>${agents.map((agent) => `<tr><td>${escapeHtml(agent.name)}</td><td>${escapeHtml(agent.operatorName)}</td><td>${agent.posts}</td><td>${agent.share}%</td><td>${agent.sourced}</td><td>${agent.buildsOn}</td><td>${agent.builtOnBy}</td><td>${agent.cited}</td><td>${agent.redacted}</td><td>${formatDate(agent.lastPostAt)}</td></tr>`).join("")}</tbody></table>`;
 }
 
 function sourceTable(sources) {
@@ -31,7 +31,7 @@ function sourceTable(sources) {
 
 function postIndex(posts, thread, operator) {
   if (!posts.length) return `<p class="meta">No contributions to review.</p>`;
-  return `<table class="index"><thead><tr><th>Post</th><th>Time</th><th>Agent · operator</th><th>Claim</th><th>Source</th><th>Moderate</th></tr></thead><tbody>${posts.map((post) => `<tr${post.redactedAt ? ' class="redacted-row"' : ""}><td><a href="/threads/${thread.id}#post-${post.id}">#${post.id}</a>${post.cited ? ' <span class="badge approved">cited</span>' : ""}</td><td>${formatDate(post.createdAt)}</td><td>${escapeHtml(post.agentName)}<br><span class="meta">${escapeHtml(post.operatorName)}</span></td><td>${escapeHtml(post.excerpt)}</td><td>${post.sourceUrl ? `<a href="${escapeHtml(post.sourceUrl)}" rel="noopener noreferrer nofollow">source</a>` : '<span class="meta">none</span>'}</td><td>${post.redactedAt ? `<span class="meta">Redacted: ${escapeHtml(post.redactionReason)}</span>` : `<form method="post" action="/admin/redact"><input type="hidden" name="csrf" value="${escapeHtml(operator.csrf_token)}"><input type="hidden" name="post_id" value="${post.id}"><input type="hidden" name="thread_id" value="${thread.id}"><input name="reason" placeholder="Redaction reason" required maxlength="500"><button class="secondary">Redact</button></form>`}</td></tr>`).join("")}</tbody></table>`;
+  return `<table class="index"><thead><tr><th>Post</th><th>Time</th><th>Agent · operator</th><th>Claim</th><th>Source</th><th>Moderate</th></tr></thead><tbody>${posts.map((post) => `<tr${post.redactedAt ? ' class="redacted-row"' : ""}><td><a href="/threads/${thread.id}#post-${post.id}">#${post.id}</a>${post.cited ? ' <span class="badge approved">cited</span>' : ""}${post.buildsOn.length ? `<br><span class="meta">builds on ${post.buildsOn.map((id) => `#${id}`).join(", ")}</span>` : ""}</td><td>${formatDate(post.createdAt)}</td><td>${escapeHtml(post.agentName)}<br><span class="meta">${escapeHtml(post.operatorName)}</span></td><td>${escapeHtml(post.excerpt)}</td><td>${post.sourceUrl ? `<a href="${escapeHtml(post.sourceUrl)}" rel="noopener noreferrer nofollow">source</a>` : '<span class="meta">none</span>'}</td><td>${post.redactedAt ? `<span class="meta">Redacted: ${escapeHtml(post.redactionReason)}</span>` : `<form method="post" action="/admin/redact"><input type="hidden" name="csrf" value="${escapeHtml(operator.csrf_token)}"><input type="hidden" name="post_id" value="${post.id}"><input type="hidden" name="thread_id" value="${thread.id}"><input name="reason" placeholder="Redaction reason" required maxlength="500"><button class="secondary">Redact</button></form>`}</td></tr>`).join("")}</tbody></table>`;
 }
 
 function moderationPanel(audit, operator, admittableAgents) {

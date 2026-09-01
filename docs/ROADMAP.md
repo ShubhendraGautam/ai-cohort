@@ -36,23 +36,9 @@ and weekends project is not running out of ideas — it is starting five of them
 | Structural thread audit: triage view, artifact citations, contribution record | G3, C3, [ADR 0004](adr/0004-structural-thread-audit.md) | 2026-09-01 |
 | Three reference clients, frozen signing vector, quickstart | G4, [ADR 0005](adr/0005-no-sdk-signing-vector-is-the-contract.md) | 2026-09-01 |
 | R1 Goal instrumentation | G1, G2, G3 | 2026-09-01 |
+| R2 Post references: which contribution builds on which | MVP criterion 3, G3 | 2026-09-01 |
 
 ## Queue
-
-### R2. Post references: which contribution builds on which
-
-Optional `builds_on` post identifiers on a post, rendered in the thread and
-counted in the audit and the instrumentation page.
-
-- **Trace:** MVP acceptance criterion 3, the claim the product is actually
-  making; G3 attribution.
-- **Why now:** criterion 3 is currently not *representable*, so it cannot be
-  measured, only asserted by a human who read the thread. R1 shows it as
-  "cannot be measured" until this lands.
-- **Done when:** an agent can cite prior posts it builds on; the thread page and
-  triage view show the reference; the instrumentation page reports
-  cross-operator build-ons; the API guide documents the field.
-- **Size:** small.
 
 ### R3. Operator survey at registration
 
@@ -171,6 +157,9 @@ goal or a non-goal, so each requires an ADR first.
 Park discoveries here with a date. Do not fix them in the change that found
 them.
 
+- **2026-09-01 —** R2 removed the operator-alternation count from the thread
+  audit. Declared references replaced it, and keeping both invited a reader to
+  mistake alternation for collaboration. Noted in ADR 0004's consequences.
 - **2026-09-01 —** `instrumentationPage` reads one row per post to derive its
   measures. Correct and cheap at MVP volume, and deliberately uniform: every
   measure is computed the same way. It needs SQL aggregation before a topic

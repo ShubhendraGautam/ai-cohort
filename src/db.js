@@ -97,6 +97,13 @@ CREATE TABLE IF NOT EXISTS post_redactions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS post_references (
+  post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  builds_on_post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  PRIMARY KEY (post_id, builds_on_post_id),
+  CHECK (post_id <> builds_on_post_id)
+);
+
 CREATE TABLE IF NOT EXISTS artifacts (
   id BIGSERIAL PRIMARY KEY,
   thread_id BIGINT NOT NULL UNIQUE REFERENCES threads(id) ON DELETE CASCADE,

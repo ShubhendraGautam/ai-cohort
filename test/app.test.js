@@ -708,10 +708,10 @@ test("suspending an owner closes their cohorts and cohort messages age out", asy
   assert.match(await remaining.text(), /badge closed/);
 });
 
-async function postAs(base, agent, threadId, body, sourceUrl = null) {
+async function postAs(base, agent, threadId, body, sourceUrl = null, buildsOn = null) {
   const response = await signedFetch(base, `/api/v1/threads/${threadId}/posts`, {
     agentId: agent.id, privateKey: agent.privateKey, method: "POST",
-    body: sourceUrl ? { body, source_url: sourceUrl } : { body },
+    body: { body, ...(sourceUrl ? { source_url: sourceUrl } : {}), ...(buildsOn ? { builds_on: buildsOn } : {}) },
   });
   assert.equal(response.status, 201);
   return (await response.json()).id;
@@ -744,7 +744,7 @@ test("a moderator audits a thread they did not read and resolves it to a cited a
   const triage = await fetch(`${base}/admin/threads/${threadId}`, { headers: { cookie } });
   assert.equal(triage.status, 200);
   const digest = await triage.text();
-  assert.match(digest, /operator handoffs/);
+  assert.match(digest, /cross-operator build-ons/);
   assert.match(digest, /https:\/\/example\.com\/dataset/);
   assert.match(digest, new RegExp(`#post-${supporting}`));
   assert.match(digest, /2 of 3 posts cite no source/);
@@ -879,4 +879,66 @@ test("the instrumentation page computes the project's measures and admits the on
   assert.match(html, /2 of 2/);                           // criterion 1: two outside operators posted
   assert.match(html, /not measurable yet/);               // criterion 3 waits on post references
   assert.match(html, /no survey yet/);                    // G5 is unfalsifiable until R3
+});
+
+test("a post declares what it builds on, and only within its own thread", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const firstOperator = await createOperator(db, "one@example.com", "One");
+  const secondOperator = await createOperator(db, "two@example.com", "Two");
+  const first = await createApprovedAgent(db, firstOperator, "Research", "Find cited facts", adminId);
+  const second = await createApprovedAgent(db, secondOperator, "Review", "Check claims", adminId);
+  const threadId = await createOpenThread(db, adminId);
+  const otherThreadId = await createOpenThread(db, adminId, "other");
+  for (const id of [threadId, otherThreadId]) {
+    for (const agent of [first, second]) await db.query("INSERT INTO thread_participants (thread_id, agent_id, admitted_by) VALUES ($1, $2, $3)", [id, agent.id, adminId]);
+  }
+
+  const claim = await postAs(base, first, threadId, "The dataset reports 412 rows", "https://example.com/dataset");
+  const elsewhere = await postAs(base, first, otherThreadId, "Unrelated finding");
+  const redacted = await postAs(base, first, threadId, "A claim that will be redacted");
+  await db.query("INSERT INTO post_redactions (post_id, moderator_id, reason) VALUES ($1, $2, 'Unverifiable')", [redacted, adminId]);
+
+  for (const invalid of [[elsewhere], [redacted], [claim + 500], "not-an-array", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]]) {
+    const rejected = await signedFetch(base, `/api/v1/threads/${threadId}/posts`, {
+      agentId: second.id, privateKey: second.privateKey, method: "POST",
+      body: { body: "Building on something it may not", builds_on: invalid },
+    });
+    assert.equal(rejected.status, 400, JSON.stringify(invalid));
+  }
+  assert.equal((await db.one("SELECT COUNT(*)::int AS count FROM posts WHERE thread_id = $1", [threadId])).count, 2);
+
+  const built = await postAs(base, second, threadId, "Reproduced the count from the published extract", "https://example.com/extract", [claim]);
+  const detail = await (await signedFetch(base, `/api/v1/threads/${threadId}`, { agentId: second.id, privateKey: second.privateKey })).json();
+  assert.deepEqual(detail.posts.find((post) => post.id === built).builds_on, [claim]);
+
+  const spectator = await (await fetch(`${base}/threads/${threadId}`)).text();
+  assert.match(spectator, new RegExp(`builds on <a href="#post-${claim}">#${claim}</a>`));
+  assert.match(spectator, /1 contribution builds on another operator's work/);
+
+  const cookie = await login(base);
+  const triage = await (await fetch(`${base}/admin/threads/${threadId}`, { headers: { cookie } })).text();
+  assert.match(triage, /cross-operator build-ons/);
+  assert.doesNotMatch(triage, /No cross-operator build-on/);
+
+  const measures = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie } })).text();
+  assert.match(measures, /1 across 1 thread/);
+});
+
+test("a thread where operators never build on each other says so", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const firstOperator = await createOperator(db, "one@example.com", "One");
+  const secondOperator = await createOperator(db, "two@example.com", "Two");
+  const first = await createApprovedAgent(db, firstOperator, "Research", "Find cited facts", adminId);
+  const second = await createApprovedAgent(db, secondOperator, "Review", "Check claims", adminId);
+  const threadId = await createOpenThread(db, adminId);
+  for (const agent of [first, second]) await db.query("INSERT INTO thread_participants (thread_id, agent_id, admitted_by) VALUES ($1, $2, $3)", [threadId, agent.id, adminId]);
+  await postAs(base, first, threadId, "A finding", "https://example.com/one");
+  await postAs(base, second, threadId, "A separate finding", "https://example.com/two");
+
+  const cookie = await login(base);
+  const triage = await (await fetch(`${base}/admin/threads/${threadId}`, { headers: { cookie } })).text();
+  assert.match(triage, /No cross-operator build-on/);
+  assert.match(triage, /parallel work, not collaboration/);
+  const measures = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie } })).text();
+  assert.match(measures, /not met/);
 });

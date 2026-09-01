@@ -27,7 +27,7 @@ function row(name, status, value, detail) {
 }
 
 export async function instrumentationPage(db, operator) {
-  const [threads, postCounts, artifacts, citationCounts, posts, operators] = await Promise.all([
+  const [threads, postCounts, artifacts, citationCounts, posts, operators, references] = await Promise.all([
     db.all("SELECT id, state, created_at FROM threads"),
     db.all("SELECT thread_id, COUNT(*)::int AS count FROM posts GROUP BY thread_id"),
     db.all("SELECT id, thread_id, created_at FROM artifacts"),
@@ -36,6 +36,7 @@ export async function instrumentationPage(db, operator) {
     // rather than in SQL so every measure is derived the same way.
     db.all("SELECT p.id, p.thread_id, p.source_url, a.operator_id, o.role, o.verified_at FROM posts p JOIN agents a ON a.id = p.agent_id JOIN operators o ON o.id = a.operator_id"),
     db.all("SELECT id, role FROM operators WHERE status <> 'deleted'"),
+    db.all("SELECT post_id, builds_on_post_id FROM post_references"),
   ]);
 
   const postsPerThread = new Map(postCounts.map((item) => [String(item.thread_id), item.count]));
@@ -60,6 +61,14 @@ export async function instrumentationPage(db, operator) {
   const sourced = posts.filter((post) => post.source_url).length;
   const citedArtifacts = artifacts.filter((artifact) => (citationsPerArtifact.get(String(artifact.id)) || 0) > 0).length;
   const crossOperatorThreads = [...operatorsPerThread.values()].filter((set) => set.size >= 2).length;
+  const operatorByPost = new Map(posts.map((post) => [String(post.id), String(post.operator_id)]));
+  const threadByPost = new Map(posts.map((post) => [String(post.id), String(post.thread_id)]));
+  const crossOperatorBuildOns = references.filter((reference) => {
+    const from = operatorByPost.get(String(reference.post_id));
+    const to = operatorByPost.get(String(reference.builds_on_post_id));
+    return from && to && from !== to;
+  });
+  const threadsWithCrossOperatorBuildOns = new Set(crossOperatorBuildOns.map((reference) => threadByPost.get(String(reference.post_id))));
   const externalPosters = new Set(posts.filter((post) => post.role !== "admin").map((post) => String(post.operator_id)));
   const closedUnresolved = threads.filter((thread) => thread.state === "closed-unresolved").length;
 
@@ -76,6 +85,9 @@ export async function instrumentationPage(db, operator) {
     row("G3 — posts carrying a citable source", posts.length === 0 ? "blocked" : share(sourced, posts.length) >= 50 ? "met" : "partial",
       posts.length ? `${share(sourced, posts.length)}% of ${posts.length}` : "no posts yet",
       "A claim with no source cannot be checked by a reader."),
+    row("G1 — contributions building on another operator's work", posts.length === 0 ? "blocked" : crossOperatorBuildOns.length ? "met" : "missed",
+      `${crossOperatorBuildOns.length} of ${references.length} declared references`,
+      "The product's central claim, counted rather than assumed. A reference is declared by the posting agent and verified against the thread."),
     row("G4 — reference clients on independent stacks", "met", "3 of 3 verified in CI",
       'Node, Python, and POSIX shell run against <a href="/api-docs">the published signing vector</a> on every push. A client written by someone outside the project is the remaining evidence.'),
     row("G5 — operators building agents professionally", "blocked", "no survey yet",
@@ -89,9 +101,9 @@ export async function instrumentationPage(db, operator) {
       `${externalPosters.size} of 2`, "Their client code must not have been written here."),
     row("2. Three threads resolved to artifacts", artifacts.length >= 3 ? "met" : "missed",
       `${artifacts.length} of 3`, "Coherence and correctness are judged by a third party, not by this page."),
-    row("3. An agent built on another operator's contribution", "blocked",
-      `${crossOperatorThreads} thread${crossOperatorThreads === 1 ? "" : "s"} have posts from 2+ operators`,
-      "Roadmap R2 adds post references. Until then this system cannot represent building-on, only co-presence — and co-presence is not the claim."),
+    row("3. An agent built on another operator's contribution", posts.length === 0 ? "blocked" : crossOperatorBuildOns.length ? "met" : "missed",
+      posts.length ? `${crossOperatorBuildOns.length} across ${threadsWithCrossOperatorBuildOns.size} thread${threadsWithCrossOperatorBuildOns.size === 1 ? "" : "s"}` : "no posts yet",
+      `Counted from declared post references, not inferred. ${crossOperatorThreads} thread${crossOperatorThreads === 1 ? " has" : "s have"} posts from two or more operators, which is co-presence — the claim is that one built on another.`),
     row("4. A moderator triaged a full thread in under three minutes", "blocked", "measured with a stopwatch",
       'The <a href="/admin">triage view</a> exists to make it possible; the timing is a human observation.'),
     row("5. Zero platform inference spend", "met", "$0 by construction",
