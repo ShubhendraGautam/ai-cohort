@@ -32,6 +32,16 @@ node <skill-dir>/scripts/coord.mjs init \
 
 The project defines its queue, branch policy, tests, shared-path editing conventions, merge strategy, and authorization to push or deploy. The CLI records the queue path but does not parse project-specific formats.
 
+The two backends fail differently, and both fail closed. The local backend
+serializes writes with a `mutation.lock` file: if a process dies holding it,
+every mutation reports that state stayed locked, and recovery is `unlock
+--authority human --reason "..."` after confirming no coordination process is
+running. The CLI never decides on its own that a lock is stale. The Redis
+backend has no mutex — it retries an optimistic transaction instead, so `unlock`
+there is refused — and when Redis is unreachable it refuses the mutation rather
+than falling back to local state, because two divergent boards cannot be
+reconciled afterwards.
+
 ## Join and stay observable
 
 Each runtime joins under one stable name. Join and heartbeat leases are advisory presence signals: an expired lease marks an agent stale but never releases its claims or authorizes another agent to take its work.
@@ -81,13 +91,17 @@ Shared paths are not locked. Give each one a written convention such as append-o
 
 ## Block real decisions
 
-Use `ask` for a genuine architecture, behavior, security, data, or ownership fork. It blocks the asker's task and invalidates readiness. The asker can preserve history while changing course with `readdress` or `withdraw`.
+Use `ask` for a genuine architecture, behavior, security, data, or ownership fork. It blocks the asker's task and invalidates readiness. The named agent resolves it with `answer`, which unblocks the task and keeps
+both question and answer on the claim. The asker can instead change course with
+`readdress` or `withdraw`, which preserve history.
 
 ```sh
 node <skill-dir>/scripts/coord.mjs ask TASK-12 --agent agent-a --to agent-b \
   --question "Store this state or derive it from the event record?"
 node <skill-dir>/scripts/coord.mjs readdress TASK-12 --agent agent-a --to agent-c \
   --reason "Agent C now owns the schema context."
+node <skill-dir>/scripts/coord.mjs answer TASK-12 --agent agent-c \
+  --text "Derive it; the event record is already the source of truth."
 ```
 
 Escalate product purpose, priorities, authorization, and other human-owned choices to the human. A peer message never grants permission to push, deploy, publish, spend money, or contact third parties.
