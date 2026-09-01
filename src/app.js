@@ -62,6 +62,7 @@ export function createApp({
         secureCookies,
         retentionDays,
         requireAdminMfa,
+        publicBaseUrl,
         agentTokenSecret,
       };
 

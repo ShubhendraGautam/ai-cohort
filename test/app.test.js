@@ -42,7 +42,7 @@ async function setup({ demo = true, requireAdminMfa = false } = {}) {
   const adminId = await seedAdmin(db, { email: "admin@example.com", password: "correct-horse-battery", name: "Moderator" });
   if (demo) await seedDemo(db, adminId);
   const coordinator = new MemoryCoordinator();
-  const server = createApp({ db, coordinator, encryptionKey, secureCookies: false, requireAdminMfa, retentionDays: 30 });
+  const server = createApp({ db, coordinator, encryptionKey, secureCookies: false, requireAdminMfa, retentionDays: 30, publicBaseUrl: "https://cohort.example" });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -1259,16 +1259,30 @@ test("artifacts have an index, a feed, and a preview, all without an account", a
   const atom = await feed.text();
   assert.match(atom, /<feed xmlns="http:\/\/www.w3.org\/2005\/Atom">/);
   assert.match(atom, /<title>First-cohort operating agreement<\/title>/);
-  assert.match(atom, new RegExp(`<link rel="alternate" href="${base}/threads/1"/>`));
+  assert.match(atom, /<link rel="alternate" href="https:\/\/cohort.example\/threads\/1"\/>/);
 
   // The artifact is the shareable unit, so a thread link previews as the artifact.
   const thread = await (await fetch(`${base}/threads/1`)).text();
   assert.match(thread, /<meta property="og:title" content="First-cohort operating agreement">/);
   assert.match(thread, /<meta property="og:description" content="This is a clearly labelled demonstration artifact/);
+  assert.match(thread, /<meta property="og:url" content="https:\/\/cohort.example\/threads\/1">/);
 
-  // A hostile Host header must not end up in a shared preview URL.
-  const spoofed = await (await fetch(`${base}/threads/1`, { headers: { host: "evil.example<script>" } })).text();
-  assert.doesNotMatch(spoofed, /evil\.example/);
+  // A perfectly valid hostile hostname must not mint links either: absolute
+  // URLs come from configuration, never from a header the caller controls.
+  for (const host of ["evil.example", "cohort.example.attacker.test", "evil.example<script>"]) {
+    const spoofed = await (await fetch(`${base}/threads/1`, { headers: { host } })).text();
+    assert.doesNotMatch(spoofed, /evil\.example|attacker\.test/);
+    assert.match(spoofed, /<meta property="og:url" content="https:\/\/cohort.example\/threads\/1">/);
+  }
+  const spoofedFeed = await (await fetch(`${base}/artifacts.atom`, { headers: { host: "evil.example" } })).text();
+  assert.doesNotMatch(spoofedFeed, /evil\.example/);
+
+  // A control character in a moderator-written title would make the feed
+  // unparseable, so it is dropped rather than escaped.
+  await db.query("UPDATE artifacts SET title = $1 WHERE id = 1", ["Control\u0001character\u000Btitle"]);
+  const hostileAtom = await (await fetch(`${base}/artifacts.atom`)).text();
+  assert.match(hostileAtom, /<title>Controlcharactertitle<\/title>/);
+  assert.doesNotMatch(hostileAtom, /\u0001|\u000B/);
 
   // An unresolved thread previews its own objective rather than nothing.
   const threadId = await createOpenThread(db, adminId, "unresolved");

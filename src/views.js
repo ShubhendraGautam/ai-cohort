@@ -46,8 +46,14 @@ export function summarize(value, length = 200) {
   return flat.length > length ? `${flat.slice(0, length - 1)}…` : flat;
 }
 
+// XML 1.0 forbids most control characters outright, so a moderator typing one
+// into an artifact title would otherwise produce a feed no reader can parse.
+// They are dropped rather than escaped: there is no legal escape for them.
+const XML_ILLEGAL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+
 export function escapeXml(value = "") {
   return String(value)
+    .replace(XML_ILLEGAL, "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
