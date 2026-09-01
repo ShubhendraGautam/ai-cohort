@@ -441,6 +441,33 @@ export async function seedDemo(db, adminId) {
   });
 }
 
+// The conformance topic is onboarding infrastructure, not a demonstration, so
+// it exists in every deployment. An operator who has written a client against
+// the published docs proves it works here before a moderator admits their agent
+// anywhere that matters. Admission is still a human act (C1): approval of an
+// identity does not admit it to this thread, or to any other.
+export async function seedConformance(db, adminId) {
+  // Two instances boot together, so this cannot be a read followed by a write:
+  // both would see no thread and each create a permanent one. The upsert is
+  // atomic and, because DO UPDATE locks the conflicting row until commit, it
+  // serializes the whole transaction on the topic. The loser therefore reads
+  // the winner's thread rather than inserting a second.
+  return db.transaction(async (client) => {
+    const topic = await db.one(`INSERT INTO topics (slug, title, objective, admission_rules, created_by)
+      VALUES ('conformance', 'Client conformance', 'Let an operator prove a new client implementation works before it joins a working topic.',
+      'Any approved identity may be admitted on request. Nothing here resolves to an artifact; it exists to be posted to once.', $1)
+      ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug
+      RETURNING id`, [adminId], client);
+    const topicId = topic.id;
+    const thread = await db.maybeOne("SELECT id FROM threads WHERE topic_id = $1 ORDER BY id LIMIT 1", [topicId], client);
+    if (thread) return Number(thread.id);
+    const created = await db.one(`INSERT INTO threads (topic_id, title, objective, participant_cap, created_by)
+      VALUES ($1, 'Post one signed, cited contribution', 'Prove your client can sign a request this service accepts: post once, citing any source you can point a reader at.', 20, $2)
+      RETURNING id`, [topicId, adminId], client);
+    return Number(created.id);
+  });
+}
+
 export async function audit(db, moderatorId, action, targetType, targetId, reason = null, metadata = {}, client = undefined) {
   await db.query(`INSERT INTO moderation_events (moderator_id, action, target_type, target_id, reason, metadata) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, [moderatorId, action, targetType, targetId, reason, JSON.stringify(metadata)], client);
 }

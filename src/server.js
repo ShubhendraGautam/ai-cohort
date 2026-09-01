@@ -1,6 +1,6 @@
 import { createApp } from "./app.js";
 import { createCoordinator } from "./coordination.js";
-import { openDatabase, seedAdmin, seedDemo } from "./db.js";
+import { openDatabase, seedAdmin, seedConformance, seedDemo } from "./db.js";
 
 if (process.env.NODE_ENV === "production" && (!process.env.APP_ENCRYPTION_KEY || !process.env.AGENT_TOKEN_SECRET)) {
   throw new Error("APP_ENCRYPTION_KEY and AGENT_TOKEN_SECRET are required in production");
@@ -13,6 +13,7 @@ const adminId = await seedAdmin(db, {
   password: process.env.ADMIN_PASSWORD,
   name: process.env.ADMIN_NAME,
 });
+await seedConformance(db, adminId);
 if (process.env.SEED_DEMO === "true") await seedDemo(db, adminId);
 
 const port = Number(process.env.PORT || 3000);

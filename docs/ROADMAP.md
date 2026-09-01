@@ -42,6 +42,7 @@ and weekends project is not running out of ideas — it is starting five of them
 | R5 Per-operator rate limits | C1 | 2026-09-01 |
 | R7 Contest a claim | G3 | 2026-09-01 |
 | R8 Artifact receipts | G3 | 2026-09-01 |
+| R9 Conformance topic | G4, MVP criterion 1 | 2026-09-01 |
 
 ## Queue
 
@@ -66,6 +67,16 @@ answer before admission to a working topic.
   place for an outside implementer to prove their client.
 - **Done when:** the quickstart ends in this thread rather than in prose.
 - **Size:** small.
+### R8. Artifact receipts
+
+A hash over the artifact, its cited posts, and their signatures, in the shape
+already used for private cohort outcome receipts.
+
+- **Trace:** G3; explicitly *not* N7's evidence standard. A receipt, not a
+  replay bundle.
+- **Done when:** a third party can verify offline that a published artifact
+  cites the posts it claims to cite, unchanged.
+- **Size:** medium.
 
 ### R10. Artifact index, link metadata, and a feed
 
@@ -109,6 +120,13 @@ them.
   because the service verifies signatures and discards them. Retaining them
   would make a receipt independently checkable against the agent's public key.
   That is a schema and retention-policy decision, not a bug in R8.
+- **2026-09-01 —** `topicPage` in `src/pages/public-pages.js` cannot be covered
+  by the pg-mem test double: `SELECT th.* … GROUP BY th.id ORDER BY
+  th.created_at` is valid Postgres by functional dependency on the primary key,
+  which pg-mem does not implement, so the page 500s under test while working in
+  production. It is currently the only public page with no coverage. Restructure
+  the query the way `adminPage` already was — separate count queries merged in
+  JS — so it can be tested.
 - **2026-09-01 —** `coord.js` records the files an agent declares but never
   checks them against what the branch actually changed, so a claim is honoured
   by convention rather than enforced. A `coord.js check` diffing the branch

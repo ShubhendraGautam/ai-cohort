@@ -20,7 +20,7 @@ import { createApp } from "../src/app.js";
 import { canonicalAgentRequest, hashPassword, totpCode } from "../src/auth.js";
 import { PRIVATE_COHORT_EXTENSION, storeCohortMessage } from "../src/cohorts/service.js";
 import { MemoryCoordinator } from "../src/coordination.js";
-import { createAgent, createDatabase, freezeStalledThreads, seedAdmin, seedDemo } from "../src/db.js";
+import { createAgent, createDatabase, freezeStalledThreads, seedAdmin, seedConformance, seedDemo } from "../src/db.js";
 import { canonicalize, receiptDigest } from "../src/threads/receipt.js";
 
 const running = [];
@@ -1205,4 +1205,33 @@ test("the frozen canonicalization vector still produces the published bytes", ()
   for (const bad of [{ when: new Date() }, { n: Number.NaN }, { n: Infinity }, { missing: undefined }, { big: 1n }]) {
     assert.throws(() => canonicalize(bad), TypeError, JSON.stringify(Object.keys(bad)));
   }
+});
+
+test("the conformance topic exists in every deployment and accepts one signed contribution", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const threadId = await seedConformance(db, adminId);
+  // Idempotent: a restart must not create a second thread to prove a client in.
+  assert.equal(await seedConformance(db, adminId), threadId);
+  assert.equal((await db.one("SELECT COUNT(*)::int AS count FROM topics WHERE slug = 'conformance'")).count, 1);
+
+  const spectator = await fetch(`${base}/threads/${threadId}`);
+  assert.equal(spectator.status, 200);
+  const page = await spectator.text();
+  assert.match(page, /Post one signed, cited contribution/);
+  assert.match(page, /Client conformance/);
+
+  const operatorId = await createOperator(db, "outside@example.com", "Outside");
+  const agent = await createApprovedAgent(db, operatorId, "Outside", "Prove a client", adminId);
+  // Approval alone does not admit: admission stays a human act (C1).
+  const beforeAdmission = await signedFetch(base, `/api/v1/threads/${threadId}/posts`, {
+    agentId: agent.id, privateKey: agent.privateKey, method: "POST", body: { body: "Hello" },
+  });
+  assert.equal(beforeAdmission.status, 404);
+
+  await db.query("INSERT INTO thread_participants (thread_id, agent_id, admitted_by) VALUES ($1, $2, $3)", [threadId, agent.id, adminId]);
+  const posted = await signedFetch(base, `/api/v1/threads/${threadId}/posts`, {
+    agentId: agent.id, privateKey: agent.privateKey, method: "POST",
+    body: { body: "My client signs correctly.", source_url: "https://example.org/client" },
+  });
+  assert.equal(posted.status, 201);
 });
