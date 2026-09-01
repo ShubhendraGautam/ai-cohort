@@ -6,19 +6,20 @@ import { issueAgentToken } from "../security/agent-tokens.js";
 
 const MAX_REFERENCES = 10;
 
-// A post may declare which earlier contributions it builds on. The reference is
-// what makes cross-operator collaboration a fact in the record rather than an
-// impression a reader forms, so it is validated as strictly as the post itself.
-async function referencedPostIds(db, threadId, value, client) {
+// A post may declare which earlier contributions it builds on, and which it
+// contests. Both make a relationship between contributions a fact in the record
+// rather than an impression a reader forms, so both are validated as strictly
+// as the post itself.
+async function relatedPostIds(db, threadId, value, field, client) {
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) throw Object.assign(new Error("builds_on must be an array of post identifiers"), { status: 400 });
+  if (!Array.isArray(value)) throw Object.assign(new Error(`${field} must be an array of post identifiers`), { status: 400 });
   const requested = [...new Set(value.map(Number))];
-  if (requested.some((id) => !Number.isInteger(id) || id <= 0)) throw Object.assign(new Error("builds_on must contain post identifiers"), { status: 400 });
-  if (requested.length > MAX_REFERENCES) throw Object.assign(new Error(`A post may build on at most ${MAX_REFERENCES} posts`), { status: 400 });
+  if (requested.some((id) => !Number.isInteger(id) || id <= 0)) throw Object.assign(new Error(`${field} must contain post identifiers`), { status: 400 });
+  if (requested.length > MAX_REFERENCES) throw Object.assign(new Error(`A post may name at most ${MAX_REFERENCES} posts in ${field}`), { status: 400 });
   if (!requested.length) return [];
   const rows = await db.all("SELECT p.id FROM posts p LEFT JOIN post_redactions r ON r.post_id = p.id WHERE p.thread_id = $1 AND r.post_id IS NULL", [threadId], client);
   const available = new Set(rows.map((row) => Number(row.id)));
-  if (requested.some((id) => !available.has(id))) throw Object.assign(new Error("A post can only build on unredacted posts in the same thread"), { status: 400 });
+  if (requested.some((id) => !available.has(id))) throw Object.assign(new Error(`${field} can only name unredacted posts in the same thread`), { status: 400 });
   return requested;
 }
 
@@ -27,6 +28,12 @@ async function apiThread(db, threadId, agentId) {
   if (!thread) return null;
   const posts = await db.all(`SELECT p.id, p.body, p.source_url, p.content_hash, p.created_at, a.id AS agent_id, a.name AS agent_name, a.key_fingerprint, o.name AS operator_name, r.created_at AS redacted_at, r.reason AS redaction_reason FROM posts p JOIN agents a ON a.id = p.agent_id JOIN operators o ON o.id = a.operator_id LEFT JOIN post_redactions r ON r.post_id = p.id WHERE p.thread_id = $1 ORDER BY p.created_at, p.id`, [threadId]);
   const references = await db.all("SELECT r.post_id, r.builds_on_post_id FROM post_references r JOIN posts p ON p.id = r.post_id WHERE p.thread_id = $1 ORDER BY r.builds_on_post_id", [threadId]);
+  const contestRows = await db.all("SELECT c.post_id, c.contested_post_id, c.addressed_at FROM post_contests c JOIN posts p ON p.id = c.post_id WHERE p.thread_id = $1 ORDER BY c.contested_post_id", [threadId]);
+  const contests = new Map();
+  for (const contest of contestRows) {
+    const key = String(contest.post_id);
+    contests.set(key, [...(contests.get(key) || []), Number(contest.contested_post_id)]);
+  }
   const buildsOn = new Map();
   for (const reference of references) {
     const key = String(reference.post_id);
@@ -36,8 +43,9 @@ async function apiThread(db, threadId, agentId) {
   if (artifact) {
     const citations = await db.all("SELECT post_id FROM artifact_citations WHERE artifact_id = $1 ORDER BY post_id", [artifact.id]);
     artifact.supporting_posts = citations.map((row) => Number(row.post_id));
+    artifact.standing_objections = contestRows.filter((contest) => !contest.addressed_at).map((contest) => Number(contest.post_id));
   }
-  return { ...thread, posts: posts.map((post) => post.redacted_at ? { id: post.id, redacted: true, redaction_reason: post.redaction_reason, created_at: post.created_at } : { ...post, builds_on: buildsOn.get(String(post.id)) || [] }), artifact };
+  return { ...thread, posts: posts.map((post) => post.redacted_at ? { id: post.id, redacted: true, redaction_reason: post.redaction_reason, created_at: post.created_at } : { ...post, builds_on: buildsOn.get(String(post.id)) || [], contests: contests.get(String(post.id)) || [] }), artifact };
 }
 
 export async function handleAgentApiRoutes(context) {
@@ -85,13 +93,15 @@ export async function handleAgentApiRoutes(context) {
       const thread = await db.maybeOne(`SELECT th.* FROM threads th JOIN thread_participants tp ON tp.thread_id = th.id WHERE th.id = $1 AND tp.agent_id = $2 FOR UPDATE`, [threadId, agent.id], client);
       if (!thread) throw Object.assign(new Error("Thread not found or agent not admitted"), { status: 404 });
       if (thread.state !== "open") throw Object.assign(new Error(`Thread is ${thread.state} and does not accept posts`), { status: 409 });
-      const references = await referencedPostIds(db, threadId, body.builds_on, client);
+      const references = await relatedPostIds(db, threadId, body.builds_on, "builds_on", client);
+      const contests = await relatedPostIds(db, threadId, body.contests, "contests", client);
       const row = await db.one(`INSERT INTO posts (thread_id, agent_id, body, source_url, content_hash, request_nonce) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`, [threadId, agent.id, required(body.body, "Body", 12_000), safeUrl(body.source_url), createHash("sha256").update(rawBody).digest("hex"), nonce], client);
       for (const reference of references) await db.query("INSERT INTO post_references (post_id, builds_on_post_id) VALUES ($1, $2)", [row.id, reference], client);
+      for (const contested of contests) await db.query("INSERT INTO post_contests (post_id, contested_post_id) VALUES ($1, $2)", [row.id, contested], client);
       await db.query("UPDATE threads SET updated_at = NOW() WHERE id = $1", [threadId], client);
-      return { ...row, references };
+      return { ...row, references, contests };
     });
-    json(res, 201, { id: Number(created.id), thread_id: threadId, builds_on: created.references, created_at: created.created_at }, { location: `/api/v1/threads/${threadId}` });
+    json(res, 201, { id: Number(created.id), thread_id: threadId, builds_on: created.references, contests: created.contests, created_at: created.created_at }, { location: `/api/v1/threads/${threadId}` });
     return true;
   }
 

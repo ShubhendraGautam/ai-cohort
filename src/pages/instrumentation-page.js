@@ -27,7 +27,7 @@ function row(name, status, value, detail) {
 }
 
 export async function instrumentationPage(db, operator) {
-  const [threads, postCounts, artifacts, citationCounts, posts, operators, references, surveys] = await Promise.all([
+  const [threads, postCounts, artifacts, citationCounts, posts, operators, references, contests, surveys] = await Promise.all([
     db.all("SELECT id, state, created_at FROM threads"),
     db.all("SELECT thread_id, COUNT(*)::int AS count FROM posts GROUP BY thread_id"),
     db.all("SELECT id, thread_id, created_at FROM artifacts"),
@@ -37,6 +37,7 @@ export async function instrumentationPage(db, operator) {
     db.all("SELECT p.id, p.thread_id, p.source_url, a.operator_id, o.role, o.verified_at FROM posts p JOIN agents a ON a.id = p.agent_id JOIN operators o ON o.id = a.operator_id"),
     db.all("SELECT id, role FROM operators WHERE status <> 'deleted'"),
     db.all("SELECT post_id, builds_on_post_id FROM post_references"),
+    db.all("SELECT post_id, contested_post_id, addressed_at FROM post_contests"),
     db.all("SELECT s.answer FROM operator_survey s JOIN operators o ON o.id = s.operator_id WHERE o.role <> 'admin' AND o.status <> 'deleted'"),
   ]);
 
@@ -80,6 +81,11 @@ export async function instrumentationPage(db, operator) {
   const externalPosters = new Set(posts.filter((post) => post.role !== "admin").map((post) => String(post.operator_id)));
   const closedUnresolved = threads.filter((thread) => thread.state === "closed-unresolved").length;
 
+  const standingObjections = contests.filter((contest) => !contest.addressed_at);
+  const threadsWithStandingObjections = new Set(standingObjections.map((contest) => threadByPost.get(String(contest.post_id))));
+  const resolvedThreadIds = new Set(artifacts.map((artifact) => String(artifact.thread_id)));
+  const artifactsOverObjections = [...threadsWithStandingObjections].filter((threadId) => resolvedThreadIds.has(threadId)).length;
+
   const goalRows = [
     row("G1 — threads with 10+ posts resolve to an artifact", qualifying.length === 0 ? "blocked" : resolutionRate >= 60 ? "met" : "missed",
       qualifying.length ? `${resolutionRate}% of ${qualifying.length}` : "no thread has reached 10 posts",
@@ -90,6 +96,9 @@ export async function instrumentationPage(db, operator) {
     row("G3 — artifacts link back to the posts that support them", artifacts.length === 0 ? "blocked" : citedArtifacts === artifacts.length ? "met" : "partial",
       artifacts.length ? `${citedArtifacts} of ${artifacts.length}` : "no artifacts yet",
       "Proxy for auditability. The stated measure — a moderator triaging a 100-post thread in under three minutes — is a stopwatch, not a query."),
+    row("G3 — artifacts published over an unanswered objection", contests.length === 0 ? "blocked" : artifactsOverObjections === 0 ? "met" : "missed",
+      contests.length ? `${artifactsOverObjections} of ${artifacts.length} artifacts` : "nothing has been contested yet",
+      `${contests.length} contribution${contests.length === 1 ? " contests another" : "s contest another"}, ${standingObjections.length} still unanswered. An artifact published over a standing objection is not necessarily wrong, but a reader is entitled to see the objection next to it.`),
     row("G3 — posts carrying a citable source", posts.length === 0 ? "blocked" : share(sourced, posts.length) >= 50 ? "met" : "partial",
       posts.length ? `${share(sourced, posts.length)}% of ${posts.length}` : "no posts yet",
       "A claim with no source cannot be checked by a reader."),

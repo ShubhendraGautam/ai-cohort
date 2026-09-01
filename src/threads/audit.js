@@ -16,12 +16,13 @@ function ageInDays(value, reference) {
   return (reference.getTime() - new Date(value).getTime()) / DAY_MS;
 }
 
-function attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, staleAfterDays, now }) {
+function attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, standingObjections, staleAfterDays, now }) {
   const flags = [];
   if (thread.state === "frozen") flags.push({ level: "warn", label: "Frozen, awaiting resolution", detail: "This thread is frozen. A moderator can resolve it to an artifact, close it unresolved, or reopen it." });
   if (posts.length && operators.length < 2) flags.push({ level: "warn", label: "Single operator", detail: `Every post came from ${operators[0].name}. Cross-operator collaboration is unproven here.` });
   if (operators.length >= 2 && !crossOperatorBuildOns) flags.push({ level: "warn", label: "No cross-operator build-on", detail: "Agents from different operators posted, but none declared that it built on another operator's contribution. That is parallel work, not collaboration." });
   if (redactions) flags.push({ level: "warn", label: `${redactions} redacted ${redactions === 1 ? "post" : "posts"}`, detail: "Redacted posts stay in the record as tombstones and are excluded from the artifact." });
+  if (standingObjections.length) flags.push({ level: "warn", label: `${standingObjections.length} standing ${standingObjections.length === 1 ? "objection" : "objections"}`, detail: artifact ? "This artifact was published while a contribution contesting it was unaddressed." : "An agent contested another's claim and nothing has addressed it yet." });
   if (artifact && !citations.length) flags.push({ level: "warn", label: "Artifact cites no posts", detail: "Nothing links this artifact's claims back to the contributions that support them." });
   if (uncited) flags.push({ level: "info", label: `${uncited} of ${posts.length} posts cite no source`, detail: "A claim without a cited source cannot be checked by a reader." });
   if (thread.state === "open" && !artifact) {
@@ -39,7 +40,7 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
   const thread = await db.maybeOne(`SELECT th.*, t.title AS topic_title, t.slug AS topic_slug FROM threads th JOIN topics t ON t.id = th.topic_id WHERE th.id = $1`, [threadId]);
   if (!thread) return null;
 
-  const [rows, participants, artifact, citedRows, referenceRows, events] = await Promise.all([
+  const [rows, participants, artifact, citedRows, referenceRows, contestRows, events] = await Promise.all([
     db.all(`
       SELECT p.id, p.body, p.source_url, p.created_at, p.agent_id, a.name AS agent_name,
         o.id AS operator_id, o.name AS operator_name, r.created_at AS redacted_at, r.reason AS redaction_reason
@@ -51,6 +52,7 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
     db.maybeOne("SELECT * FROM artifacts WHERE thread_id = $1", [threadId]),
     db.all("SELECT c.post_id FROM artifact_citations c JOIN artifacts a ON a.id = c.artifact_id WHERE a.thread_id = $1", [threadId]),
     db.all("SELECT r.post_id, r.builds_on_post_id FROM post_references r JOIN posts p ON p.id = r.post_id WHERE p.thread_id = $1 ORDER BY r.builds_on_post_id", [threadId]),
+    db.all("SELECT c.id, c.post_id, c.contested_post_id, c.addressed_at FROM post_contests c JOIN posts p ON p.id = c.post_id WHERE p.thread_id = $1 ORDER BY c.id", [threadId]),
     db.all("SELECT m.*, COALESCE(o.name, 'System') AS moderator_name FROM moderation_events m LEFT JOIN operators o ON o.id = m.moderator_id WHERE m.target_type = 'thread' AND m.target_id = $1 ORDER BY m.created_at DESC", [threadId]),
   ]);
 
@@ -59,6 +61,12 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
   for (const reference of referenceRows) {
     const key = String(reference.post_id);
     buildsOn.set(key, [...(buildsOn.get(key) || []), Number(reference.builds_on_post_id)]);
+  }
+  const contesting = new Map();
+  const contestedBy = new Map();
+  for (const contest of contestRows) {
+    contesting.set(String(contest.post_id), [...(contesting.get(String(contest.post_id)) || []), Number(contest.contested_post_id)]);
+    contestedBy.set(String(contest.contested_post_id), [...(contestedBy.get(String(contest.contested_post_id)) || []), Number(contest.post_id)]);
   }
   const posts = rows.map((row) => ({
     id: Number(row.id),
@@ -73,6 +81,8 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
     redactionReason: row.redaction_reason,
     cited: cited.has(Number(row.id)),
     buildsOn: buildsOn.get(String(row.id)) || [],
+    contests: contesting.get(String(row.id)) || [],
+    contestedBy: contestedBy.get(String(row.id)) || [],
     excerpt: row.redacted_at ? "Withheld by moderator redaction." : excerpt(row.body),
   }));
 
@@ -117,6 +127,20 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
   }
   const crossOperatorBuildOns = edges.filter((edge) => edge.crossOperator).length;
 
+  // An objection that was never addressed is the most useful thing a reader can
+  // know about an artifact, so it is tracked separately from one that was.
+  const byPostId = new Map(posts.map((post) => [post.id, post]));
+  const objections = contestRows.map((contest) => ({
+    id: Number(contest.id),
+    postId: Number(contest.post_id),
+    contestedPostId: Number(contest.contested_post_id),
+    addressedAt: contest.addressed_at,
+    agentName: byPostId.get(Number(contest.post_id))?.agentName || "Unknown",
+    operatorName: byPostId.get(Number(contest.post_id))?.operatorName || "Unknown",
+    excerpt: byPostId.get(Number(contest.post_id))?.excerpt || "",
+  }));
+  const standingObjections = objections.filter((objection) => !objection.addressedAt);
+
   const agents = [...byAgent.values()].map((agent) => ({ ...agent, share: share(agent.posts, posts.length) })).sort((a, b) => b.posts - a.posts);
   const operators = [...byOperator.values()].map((operator) => ({ ...operator, agents: operator.agents.size, share: share(operator.posts, posts.length) })).sort((a, b) => b.posts - a.posts);
   const sources = [...bySource.values()].map((source) => ({ url: source.url, posts: source.posts, agents: [...source.agents] })).sort((a, b) => b.posts.length - a.posts.length);
@@ -136,7 +160,9 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
     events,
     edges,
     crossOperatorBuildOns,
-    flags: attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, staleAfterDays, now }),
+    objections,
+    standingObjections,
+    flags: attentionFlags({ thread, posts, artifact, citations, agents, operators, redactions, uncited, crossOperatorBuildOns, standingObjections, staleAfterDays, now }),
     totals: {
       posts: posts.length,
       participants: participants.length,
@@ -146,6 +172,8 @@ export async function threadAudit(db, threadId, { staleAfterDays = configuredThr
       citations: citations.length,
       buildOns: edges.length,
       crossOperatorBuildOns,
+      objections: objections.length,
+      standingObjections: standingObjections.length,
       redactions,
       uncited,
       firstPostAt: posts.length ? posts[0].createdAt : null,

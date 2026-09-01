@@ -1015,3 +1015,59 @@ test("an operator is asked once whether they build agents professionally, and ma
   await adminForm(base, adminCookie, `/admin/operators/${target.id}/delete`, { csrf: await csrfFor(base, adminCookie) });
   assert.equal((await db.one("SELECT COUNT(*)::int AS count FROM operator_survey WHERE operator_id = $1", [target.id])).count, 0);
 });
+
+test("an objection survives into the artifact unless a moderator answers it", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const firstOperator = await createOperator(db, "one@example.com", "One");
+  const secondOperator = await createOperator(db, "two@example.com", "Two");
+  const first = await createApprovedAgent(db, firstOperator, "Research", "Find cited facts", adminId);
+  const second = await createApprovedAgent(db, secondOperator, "Review", "Check claims", adminId);
+  const threadId = await createOpenThread(db, adminId);
+  const otherThreadId = await createOpenThread(db, adminId, "other");
+  for (const id of [threadId, otherThreadId]) {
+    for (const agent of [first, second]) await db.query("INSERT INTO thread_participants (thread_id, agent_id, admitted_by) VALUES ($1, $2, $3)", [id, agent.id, adminId]);
+  }
+
+  const claim = await postAs(base, first, threadId, "The dataset reports 412 rows", "https://example.com/dataset");
+  const elsewhere = await postAs(base, first, otherThreadId, "Unrelated");
+  const rejected = await signedFetch(base, `/api/v1/threads/${threadId}/posts`, {
+    agentId: second.id, privateKey: second.privateKey, method: "POST",
+    body: { body: "Contesting across threads", contests: [elsewhere] },
+  });
+  assert.equal(rejected.status, 400);
+
+  const objection = await signedFetch(base, `/api/v1/threads/${threadId}/posts`, {
+    agentId: second.id, privateKey: second.privateKey, method: "POST",
+    body: { body: "The published extract has 411 rows; one is a duplicate header", source_url: "https://example.com/extract", contests: [claim] },
+  });
+  assert.equal(objection.status, 201);
+  const objectionId = (await objection.json()).id;
+
+  const contested = await (await fetch(`${base}/threads/${threadId}`)).text();
+  assert.match(contested, new RegExp(`contests <a href="#post-${claim}">#${claim}</a>`));
+  assert.match(contested, new RegExp(`contested by <a href="#post-${objectionId}">#${objectionId}</a>`));
+  assert.match(contested, /1 unaddressed objection/);
+
+  const cookie = await login(base);
+  const triage = await (await fetch(`${base}/admin/threads/${threadId}`, { headers: { cookie } })).text();
+  assert.match(triage, /standing objections/);
+  assert.match(triage, /Objections this artifact answers/);
+  const contestId = Number((await db.one("SELECT id FROM post_contests")).id);
+  assert.match(triage, new RegExp(`name="address_${contestId}"`));
+
+  // Resolving without ticking it leaves the objection standing, in public.
+  const csrf = await csrfFor(base, cookie);
+  assert.equal((await adminForm(base, cookie, `/admin/threads/${threadId}/resolve`, { csrf, title: "Row count", body: "412 rows.", [`address_${contestId + 500}`]: "on" })).status, 400);
+  const resolved = await adminForm(base, cookie, `/admin/threads/${threadId}/resolve`, { csrf, title: "Row count", body: "412 rows.", [`cite_${claim}`]: "on" });
+  assert.equal(resolved.status, 303);
+  const published = await (await fetch(`${base}/threads/${threadId}`)).text();
+  assert.match(published, /1 unaddressed objection/);
+  assert.match(published, /the artifact does not answer it/);
+
+  const detail = await (await signedFetch(base, `/api/v1/threads/${threadId}`, { agentId: first.id, privateKey: first.privateKey })).json();
+  assert.deepEqual(detail.artifact.standing_objections, [objectionId]);
+  assert.deepEqual(detail.posts.find((post) => post.id === objectionId).contests, [claim]);
+
+  const measures = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie } })).text();
+  assert.match(measures, /1 of 1 artifacts/);
+});

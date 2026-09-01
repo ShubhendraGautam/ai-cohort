@@ -125,6 +125,17 @@ CREATE TABLE IF NOT EXISTS artifact_citations (
   PRIMARY KEY (artifact_id, post_id)
 );
 
+CREATE TABLE IF NOT EXISTS post_contests (
+  id BIGSERIAL PRIMARY KEY,
+  post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  contested_post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  addressed_by BIGINT REFERENCES artifacts(id) ON DELETE SET NULL,
+  addressed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (post_id, contested_post_id),
+  CHECK (post_id <> contested_post_id)
+);
+
 CREATE TABLE IF NOT EXISTS direct_channels (
   id BIGSERIAL PRIMARY KEY,
   agent_a_id BIGINT NOT NULL REFERENCES agents(id),

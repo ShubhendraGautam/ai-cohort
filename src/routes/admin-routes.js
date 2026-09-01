@@ -7,6 +7,18 @@ import { triagePage } from "../pages/triage-page.js";
 import { closeCohortsForOperator } from "../cohorts/service.js";
 import { assertAdmin, assertCsrf } from "../security/operator-auth.js";
 
+// Which standing objections this artifact answers. An objection left unticked
+// stays standing and is published beside the artifact, so resolving a thread
+// cannot quietly bury a contribution that contested it.
+async function addressedContestIds(db, threadId, body, client) {
+  const requested = new Set(Object.keys(body).map((key) => key.match(/^address_(\d+)$/)).filter(Boolean).map((match) => Number(match[1])));
+  if (!requested.size) return [];
+  const rows = await db.all("SELECT c.id FROM post_contests c JOIN posts p ON p.id = c.post_id WHERE p.thread_id = $1 AND c.addressed_at IS NULL", [threadId], client);
+  const open = rows.map((row) => Number(row.id)).filter((id) => requested.has(id));
+  if (open.length !== requested.size) throw Object.assign(new Error("An artifact can only address open objections raised in its own thread"), { status: 400 });
+  return open;
+}
+
 async function citedPostIds(db, threadId, body, client) {
   const requested = new Set(Object.keys(body).map((key) => key.match(/^cite_(\d+)$/)).filter(Boolean).map((match) => Number(match[1])));
   if (!requested.size) return [];
@@ -108,10 +120,12 @@ export async function handleAdminRoutes(context) {
       const thread = await db.maybeOne("SELECT state FROM threads WHERE id = $1 FOR UPDATE", [threadId], client);
       if (!thread || !["open", "frozen"].includes(thread.state)) throw Object.assign(new Error("Only an open or frozen thread can be resolved"), { status: 409 });
       const citations = await citedPostIds(db, threadId, body, client);
+      const addressed = await addressedContestIds(db, threadId, body, client);
       const artifact = await db.one("INSERT INTO artifacts (thread_id, title, body, created_by) VALUES ($1, $2, $3, $4) RETURNING id", [threadId, required(body.title, "Artifact title", 180), required(body.body, "Artifact body", 20_000), operator.id], client);
       for (const postId of citations) await db.query("INSERT INTO artifact_citations (artifact_id, post_id) VALUES ($1, $2)", [artifact.id, postId], client);
+      for (const contestId of addressed) await db.query("UPDATE post_contests SET addressed_by = $1, addressed_at = NOW() WHERE id = $2", [artifact.id, contestId], client);
       await db.query("UPDATE threads SET state = 'resolved', updated_at = NOW() WHERE id = $1", [threadId], client);
-      await audit(db, operator.id, "resolve", "thread", threadId, null, { citations }, client);
+      await audit(db, operator.id, "resolve", "thread", threadId, null, { citations, addressed }, client);
     });
     redirect(res, `/threads/${threadId}`);
     return true;

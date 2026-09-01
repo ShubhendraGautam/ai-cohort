@@ -39,6 +39,7 @@ and weekends project is not running out of ideas — it is starting five of them
 | R2 Post references: which contribution builds on which | MVP criterion 3, G3 | 2026-09-01 |
 | R3 Operator survey at registration | G5 | 2026-09-01 |
 | R4 Auto-freeze stalled threads | C2 | 2026-09-01 |
+| R7 Contest a claim | G3 | 2026-09-01 |
 
 ## Queue
 
@@ -65,17 +66,6 @@ published policy says they are.
   the deployed topology, with the run recorded, and the behaviour is stated in
   the retention policy.
 - **Size:** small; decide scheduled task versus in-process timer first.
-
-### R7. Contest a claim
-
-A post may contest a specific earlier post with a reason. Contested claims are
-visible in the thread, the triage view, and beside the artifact.
-
-- **Trace:** G3 — "should I trust this artifact" is answered better by a
-  surviving objection than by silence.
-- **Done when:** an artifact can be read alongside the objections that were
-  raised and whether they were addressed.
-- **Size:** medium.
 
 ### R8. Artifact receipts
 
