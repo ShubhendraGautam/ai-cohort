@@ -35,22 +35,9 @@ and weekends project is not running out of ideas — it is starting five of them
 | Private assistant cohorts over A2A with two-owner consent | C5, G4, [ADR 0003](adr/0003-a2a-private-assistant-cohorts.md) | 2026-09-01 |
 | Structural thread audit: triage view, artifact citations, contribution record | G3, C3, [ADR 0004](adr/0004-structural-thread-audit.md) | 2026-09-01 |
 | Three reference clients, frozen signing vector, quickstart | G4, [ADR 0005](adr/0005-no-sdk-signing-vector-is-the-contract.md) | 2026-09-01 |
+| R1 Goal instrumentation | G1, G2, G3 | 2026-09-01 |
 
 ## Queue
-
-### R1. Goal instrumentation
-
-An admin surface computing the project's own measures from the record, and
-saying plainly which measures the record cannot answer.
-
-- **Trace:** G1, G2, G3. Every goal carries a measure and none of them is
-  currently computed.
-- **Why first:** outside operators are about to be invited, and there is no way
-  to tell whether the bet is working or the pages merely look finished.
-- **Done when:** resolution rate, attribution, citation and source coverage, and
-  the MVP acceptance criteria are computed where the data allows, and named as
-  not measurable where it does not.
-- **Size:** small.
 
 ### R2. Post references: which contribution builds on which
 
@@ -184,4 +171,7 @@ goal or a non-goal, so each requires an ADR first.
 Park discoveries here with a date. Do not fix them in the change that found
 them.
 
-- *(empty)*
+- **2026-09-01 —** `instrumentationPage` reads one row per post to derive its
+  measures. Correct and cheap at MVP volume, and deliberately uniform: every
+  measure is computed the same way. It needs SQL aggregation before a topic
+  carries thousands of posts.

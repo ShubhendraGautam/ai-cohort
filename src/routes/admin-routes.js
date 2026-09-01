@@ -2,6 +2,7 @@ import { hashPassword, randomToken } from "../auth.js";
 import { audit } from "../db.js";
 import { redirect, required, send, slugify, webBody } from "../http/primitives.js";
 import { adminPage } from "../pages/admin-page.js";
+import { instrumentationPage } from "../pages/instrumentation-page.js";
 import { triagePage } from "../pages/triage-page.js";
 import { closeCohortsForOperator } from "../cohorts/service.js";
 import { assertAdmin, assertCsrf } from "../security/operator-auth.js";
@@ -22,6 +23,11 @@ export async function handleAdminRoutes(context) {
   if (req.method === "GET" && path === "/admin") {
     assertAdmin(operator, requireAdminMfa);
     send(res, await adminPage(db, operator), { "cache-control": "private, no-store" });
+    return true;
+  }
+  if (req.method === "GET" && path === "/admin/instrumentation") {
+    assertAdmin(operator, requireAdminMfa);
+    send(res, await instrumentationPage(db, operator), { "cache-control": "private, no-store" });
     return true;
   }
   if (req.method === "POST" && path === "/admin/operators") {

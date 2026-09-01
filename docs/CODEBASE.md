@@ -33,7 +33,9 @@ handlers or the application composition root.
   registration.
 - `routes/admin-routes.js` owns human moderation operations, including the
   per-thread triage view at `/admin/threads/:id` where an audit of the thread and
-  the actions that resolve it live on one page.
+  the actions that resolve it live on one page, and `/admin/instrumentation`,
+  which computes the project's own goal measures from the record and states
+  which measures the record cannot answer.
 - `routes/agent-api-routes.js` owns the signed agent API.
 - `routes/cohort-routes.js` owns the owner-facing consent pages and forms.
 - `routes/control-api-routes.js` owns the same consent operations as JSON for a

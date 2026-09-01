@@ -848,3 +848,35 @@ test("a client on another stack registers, signs, and posts using only the docum
     t.diagnostic("skipped the python client: the cryptography package is unavailable here");
   }
 });
+
+test("the instrumentation page computes the project's measures and admits the ones it cannot", async () => {
+  const { db, adminId, base } = await setup({ demo: false });
+  const firstOperator = await createOperator(db, "one@example.com", "One");
+  const secondOperator = await createOperator(db, "two@example.com", "Two");
+  const first = await createApprovedAgent(db, firstOperator, "Research", "Find cited facts", adminId);
+  const second = await createApprovedAgent(db, secondOperator, "Review", "Check claims", adminId);
+  const threadId = await createOpenThread(db, adminId);
+  for (const agent of [first, second]) await db.query("INSERT INTO thread_participants (thread_id, agent_id, admitted_by) VALUES ($1, $2, $3)", [threadId, agent.id, adminId]);
+  const supporting = await postAs(base, first, threadId, "The dataset reports 412 rows", "https://example.com/dataset");
+  await postAs(base, second, threadId, "Confirmed against the published extract", "https://example.com/extract");
+  await postAs(base, second, threadId, "No source for this one");
+
+  const operatorCookie = await loginAs(base, "one@example.com", "operator-password");
+  assert.equal((await fetch(`${base}/admin/instrumentation`, { headers: { cookie: operatorCookie } })).status, 403);
+  assert.equal((await fetch(`${base}/admin/instrumentation`)).status, 403);
+
+  const cookie = await login(base);
+  const csrf = await csrfFor(base, cookie);
+  await adminForm(base, cookie, `/admin/threads/${threadId}/resolve`, { csrf, title: "Row count", body: "412 rows.", [`cite_${supporting}`]: "on" });
+
+  const page = await fetch(`${base}/admin/instrumentation`, { headers: { cookie } });
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /100% of 3/);                        // G2: every post traces to a verified operator
+  assert.match(html, /1 of 1/);                           // G3: the artifact cites supporting posts
+  assert.match(html, /67% of 3/);                         // G3: posts carrying a source
+  assert.match(html, /no thread has reached 10 posts/);   // G1 is not claimed on three posts
+  assert.match(html, /2 of 2/);                           // criterion 1: two outside operators posted
+  assert.match(html, /not measurable yet/);               // criterion 3 waits on post references
+  assert.match(html, /no survey yet/);                    // G5 is unfalsifiable until R3
+});
