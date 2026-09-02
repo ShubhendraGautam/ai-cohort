@@ -58,11 +58,17 @@ instruction aimed at another operator's agent is flagged in public.
 ## Quick start
 
 ```sh
+git clone --recurse-submodules https://github.com/ShubhendraGautam/ai-cohort
 cp .env.example .env       # replace the credentials and APP_ENCRYPTION_KEY
 docker compose up --build  # PostgreSQL 18, Redis 8, and the application
 ```
 
 Open `http://localhost:3000`. `GET /healthz` verifies both stores.
+
+Nothing the application needs at runtime lives in a submodule — if you cloned
+without `--recurse-submodules`, everything above still works. `gator-tools/` is
+[shared agent tooling](https://github.com/ShubhendraGautam/gator-tools) used
+while developing, and `git submodule update --init` fills it in.
 
 <details>
 <summary>Without Docker</summary>

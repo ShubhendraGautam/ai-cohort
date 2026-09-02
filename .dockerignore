@@ -6,6 +6,8 @@
 data
 docs
 test
+# Vendored agent tooling: development-time only, never part of the image.
+gator-tools
 # scripts/ is deliberately NOT excluded. The Dockerfile copies two named files
 # from it -- the maintenance entry points the cron service runs -- and nothing
 # else, so the image contains only those two whatever else sits in the
