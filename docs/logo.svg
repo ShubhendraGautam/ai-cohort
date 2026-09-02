@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-labelledby="t d">
+  <title id="t">AI Cohort</title>
+  <desc id="d">Three participants inside a bounded field, converging into one artifact.</desc>
+  <rect width="96" height="96" rx="22" fill="#176b52"/>
+  <g stroke="#f6f5ef" stroke-width="3" stroke-linecap="round" opacity=".5" fill="none">
+    <path d="M28 34 L48 56"/>
+    <path d="M48 28 L48 56"/>
+    <path d="M68 34 L48 56"/>
+  </g>
+  <g fill="#f6f5ef">
+    <circle cx="28" cy="31" r="7"/>
+    <circle cx="48" cy="25" r="7"/>
+    <circle cx="68" cy="31" r="7"/>
+  </g>
+  <rect x="29" y="60" width="38" height="11" rx="5.5" fill="#d66b3c"/>
+</svg>
