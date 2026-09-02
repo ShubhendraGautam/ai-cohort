@@ -18,7 +18,11 @@ import {
   chatCompleter,
   DATA_CLOSE,
   DATA_OPEN,
+  EXAMPLE_BUILDING_FINDING,
   EXAMPLE_FINDING,
+  PARTIAL_ANSWERS,
+  REHEARSAL_SLICES,
+  gradeCollaboration,
   gradeRehearsal,
   parseTurn,
   provision,
@@ -196,10 +200,14 @@ test("the worked example is skipped and the real finding under it is read", () =
   assert.deepEqual(turn.builds_on, [7], "the example's BUILDS-ON: none must not mask the answer's reference");
 });
 
-test("a reply that is only the worked example publishes nothing", () => {
-  const turn = parseTurn(`FINDING: ${EXAMPLE_FINDING}\nSOURCE: none\nBUILDS-ON: none\nCONTESTS: none`, { validPostIds: [] });
-  assert.equal(turn.shape, "placeholder");
-  assert.equal(turn.body, "");
+test("a reply that is only a worked example publishes nothing", () => {
+  // Both examples: R18's second one was posted verbatim as a contribution on
+  // the first run after it was added, because the filter knew only the first.
+  for (const example of [EXAMPLE_FINDING, EXAMPLE_BUILDING_FINDING]) {
+    const turn = parseTurn(`FINDING: ${example}\nSOURCE: none\nBUILDS-ON: none\nCONTESTS: none`, { validPostIds: [] });
+    assert.equal(turn.shape, "placeholder", example);
+    assert.equal(turn.body, "");
+  }
 });
 
 // A reply cut off at the token ceiling used to be reported as a bad model.
@@ -269,16 +277,85 @@ test("parseTurn refuses a source the objective never offered", () => {
 
 // The grader is the only thing standing between "the mechanics ran" and a
 // report that reads as though the models were right, so its bounds matter.
+// R18. The first objective asked three questions each answerable from a table
+// printed in the objective, so no agent ever needed another's work and an empty
+// crossOperator measured nothing. The slices exist to make that impossible.
+test("no operator's slice can reach the totals the objective asks for", () => {
+  assert.equal(REHEARSAL_SLICES.length >= 2, true);
+  assert.equal(REHEARSAL_SLICES.reduce((total, slice) => total + slice.units, 0), 415);
+  assert.equal(REHEARSAL_SLICES.reduce((total, slice) => total + slice.revenue, 0), 1860);
+  for (const slice of REHEARSAL_SLICES) {
+    assert.notEqual(slice.units, 415, "a slice that already holds the answer defeats the whole design");
+    assert.notEqual(slice.revenue, 1860);
+  }
+  // A subtotal must not be mistaken for the combined answer by the grader.
+  for (const partial of PARTIAL_ANSWERS) {
+    assert.deepEqual(gradeRehearsal([{ body: `My subtotal is ${partial}.` }]).map((item) => item.stated), [false, false]);
+  }
+});
+
+// A combined total is not derivable from one slice, so the post stating one
+// either used another operator's work or invented it. Declaring it is what
+// makes criterion 3 evidence instead of an impression.
+test("a combined total is graded on whether it declared whose work it used", () => {
+  const posts = [
+    { id: 1, body: "My half, Q1 and Q2, totals 215 units.", operator_name: "op-a", builds_on: [] },
+    { id: 2, body: "My half, Q3 and Q4, totals 200 units.", operator_name: "op-b", builds_on: [] },
+    { id: 3, body: "Adding both halves gives 415 units across all four quarters.", operator_name: "op-b", builds_on: [1] },
+  ];
+  const graded = gradeCollaboration(posts);
+  assert.equal(graded.length, 1, "only the post stating a combined total is in scope");
+  assert.equal(graded[0].post, 3);
+  assert.equal(graded[0].declared, true);
+  assert.deepEqual(graded[0].buildsOn, [1]);
+});
+
+test("a combined total with no declared reference is reported, not counted as collaboration", () => {
+  const graded = gradeCollaboration([
+    { id: 1, body: "Q1 and Q2 total 215 units.", operator_name: "op-a", builds_on: [] },
+    { id: 2, body: "The four-quarter total is 415 units.", operator_name: "op-b", builds_on: [] },
+  ]);
+  assert.equal(graded.length, 1);
+  assert.equal(graded[0].declared, false, "an unexplained number must not read as evidence");
+  assert.deepEqual(graded[0].buildsOn, []);
+});
+
+test("building on one's own earlier post is not collaboration", () => {
+  const graded = gradeCollaboration([
+    { id: 1, body: "Q1 and Q2 total 215 units.", operator_name: "op-a", builds_on: [] },
+    { id: 2, body: "The four-quarter total is 415 units.", operator_name: "op-a", builds_on: [1] },
+  ]);
+  assert.equal(graded[0].declared, false, "a reference to the same operator is not a cross-operator reference");
+});
+
+// The confound R18 exists to remove: one worked example reading BUILDS-ON: none
+// was the only template for that slot, and qwen3:0.6b copied it every time.
+test("the format shows more than one value in the reference slot", () => {
+  const system = systemPrompt({ name: "a", purpose: "p" });
+  assert.equal(system.includes("BUILDS-ON: none"), true);
+  assert.equal(/BUILDS-ON: \d+/.test(system), true, "a lone 'none' example taught the model never to reference anything");
+});
+
+// C5: the operator's own data belongs in the operator's own prompt, and never
+// in a post. C8 is unaffected — this is the operator's context, not another
+// agent's text.
+test("an operator's private slice reaches its own agent and nobody else's prompt", () => {
+  const secret = "Q1,120,4";
+  const system = systemPrompt({ name: "a", purpose: "p", privateData: `You hold Q1 and Q2 only:\n${secret}` });
+  assert.equal(system.includes(secret), true);
+  assert.equal(systemPrompt({ name: "b", purpose: "p" }).includes(secret), false);
+  assert.match(system, /you never paste it into a post/i);
+});
+
 test("the rehearsal grader reads the answer and not a number that contains it", () => {
-  assert.deepEqual(gradeRehearsal([{ body: "Total units are 415 and Q3 earns most, 1860 overall." }]).map((item) => item.stated), [true, true, true]);
-  assert.deepEqual(gradeRehearsal([{ body: "Revenue was 1415 in quarter 13, total 21860." }]).map((item) => item.stated), [false, false, false]);
+  assert.deepEqual(gradeRehearsal([{ body: "Totals are 415 units and 1860 revenue." }]).map((item) => item.stated), [true, true]);
+  assert.deepEqual(gradeRehearsal([{ body: "Revenue was 1415 in quarter 13, total 21860." }]).map((item) => item.stated), [false, false]);
   // The first real run answered "Total units: 415." and was scored as having
   // answered nothing, because the bound excluded a trailing period outright.
   assert.equal(gradeRehearsal([{ body: "1. Total units: 415." }])[0].stated, true);
   assert.equal(gradeRehearsal([{ body: "Units came to 415.5 thousand." }])[0].stated, false, "a decimal is a different number");
   assert.equal(gradeRehearsal([{ body: "There were 4150 units." }])[0].stated, false);
-  assert.deepEqual(gradeRehearsal([{ body: "" }]).map((item) => item.stated), [false, false, false]);
-  assert.equal(gradeRehearsal([{ body: "the answer is q3" }])[1].stated, true, "case is the model's choice, not a wrong answer");
+  assert.deepEqual(gradeRehearsal([{ body: "" }]).map((item) => item.stated), [false, false]);
 });
 
 // The whole path, on a stub: mint two operators, rotate both minted passwords,

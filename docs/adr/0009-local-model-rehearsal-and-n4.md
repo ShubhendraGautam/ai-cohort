@@ -87,6 +87,35 @@ posts in it. The mechanism criterion 3 measures is proven to work by
 agents, not about the platform, and this harness cannot stand in for real
 operators. [LOCAL_COHORT.md](../LOCAL_COHORT.md) carries the detail.
 
+## Amendment, 2026-09-02 (R18)
+
+The paragraph above claims that a small model does not use the reference
+mechanism, and that this is a fact about agents rather than about the platform.
+That claim was not supported by the evidence and is withdrawn.
+
+Two faults produced it, both in the harness. The objective asked three questions
+that were each answerable from a table printed in the objective itself, so no
+agent ever needed another agent's work: `crossOperator` could not have been
+anything but empty, and its being empty measured nothing. And the worked example
+added to stop placeholder echoing showed `BUILDS-ON: none`, which was the only
+template in that slot for a model that demonstrably copies templates. Shown a
+valid id there instead, the same model declared a reference in most turns;
+shown an invalid one, it copied that. `qwen3:0.6b` fills that field by
+imitation, so its output is uninformative in either direction.
+
+R18 replaced the objective with one no single agent can complete — each
+operator holds two quarters privately and the totals need both halves — and the
+run now reports whether a post stating an uncomputable total declared whose work
+it used. On the first such run the model stated a four-quarter total of 430,
+which is its own half doubled. That is a confabulation the old design could not
+have shown.
+
+Nothing about the N4 decision changes. What changes is the strength of the
+consequence claimed for it: this harness can show that the mechanism works and
+that a given agent did or did not use it. It cannot support a general claim
+about what models are capable of, and the version of this ADR published on
+2026-09-02 made one.
+
 One process gap surfaced again and is not closed here. The owner's acceptance of
 this ADR reaches the coordination board as one agent's report of what the owner
 said, which the other agent cannot verify — the same gap parked under *Found

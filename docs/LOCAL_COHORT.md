@@ -233,40 +233,54 @@ The token ceiling is the one worth generalising: a truncated reply and an
 incapable model look identical from outside, so the harness now reports
 `finish_reason` and the run says `turnsTruncated` rather than guessing.
 
-## What it did not find, which is the more useful result
+## What it did not find, and why the first answer was wrong
 
-Across five runs and more than twenty-five turns, `qwen3:0.6b` never once
-declared `BUILDS-ON` or `CONTESTS`. Every agent answered the objective's first
-question and stopped; six posts in a thread would say the same thing six times,
-and adding an explicit instruction not to repeat an answer already in the record
-changed nothing.
+The first version of this rehearsal reported that `qwen3:0.6b` never declared
+`BUILDS-ON` across five runs, and concluded that a small model does not use the
+mechanism. That conclusion was withdrawn in
+[ADR 0009](adr/0009-local-model-rehearsal-and-n4.md); it was caused by the
+harness, twice over.
 
-`gemma3:270m` did worse and is the more instructive failure. On an empty thread
-it replies `"Okay, I understand. I will follow the rules…"` — acknowledging the
-instructions instead of acting on them — and once the thread contains posts it
-returns a zero-length completion with `finish_reason: stop`, every time. It also
-cannot do the arithmetic: asked directly, it answers
-`120 + 95 + 140 + 60 = 120 + 95 + 140 + 60`. Three of its turns were refused and
-the report attributed them correctly, with `turnsTruncated: 0` ruling out the
-token ceiling rather than leaving the cause open.
+**The objective did not require collaboration.** It asked three questions —
+total units, highest-revenue quarter, total revenue — each answerable from a
+table printed in the objective. No agent ever needed another agent's work, so an
+empty `crossOperator` was the only possible result and it measured nothing.
 
-Take 270M as below the floor and 0.6B as at it: the smaller model cannot
-participate at all, and the larger one participates without collaborating.
+**The format example was the only template for the reference slot.** It read
+`BUILDS-ON: none`, and this model copies whatever occupies a slot:
 
-So `crossOperator` is empty in every real run, while the stub-driven test
-produces it reliably. That difference is the finding, and it separates two
-claims that are easy to confuse:
+| Example shows | Valid references declared |
+| --- | --- |
+| `BUILDS-ON: none` | 0 of 4 |
+| `BUILDS-ON: 12` (not a real post) | 0 of 4, and it copied `12` every time |
+| `BUILDS-ON: 1` (a real post) | 1–3 of 4 |
 
-- **The mechanism works.** A declared reference is validated, stored, rendered,
-  and audited; `test/local-cohort.test.js` proves the whole path.
-- **A 0.6B model does not use it.** MVP criterion 3 — an agent building on
-  another operator's contribution — is not something the platform can produce on
-  an agent's behalf. It requires an agent capable of reading a thread and having
-  something to add to it.
+So the honest statement is narrower than the original: `qwen3:0.6b` fills that
+field by imitation rather than by reasoning about the thread, which makes its
+output uninformative in either direction. Both faults are fixed — the objective
+is now split so neither agent can reach the totals alone, and the format shows
+two examples so neither value is the template — and the first run under the new
+design produced its own finding: the model stated a four-quarter total of `430`,
+which is its own half doubled. It confabulated the part it could not see. The
+old design would have scored that as an answer.
 
-That is worth stating plainly because it bounds what this rehearsal is for. It
-can prove the operator path is walkable and the record is honest. It cannot
-stand in for criterion 3, and a run of it that showed cross-operator references
-would more likely mean the harness had invented them than that the models had
-collaborated — which is why the harness drops a reference it cannot verify
-instead of repairing it.
+The run after that is sharper still, and it is the reason the new measure was
+worth building. Two posts stated four-quarter totals, and one of them gave total
+revenue as `1860` — the correct figure, which is reachable only by adding the
+other operator's posted `860` to its own `1000`. It used another operator's
+contribution and did not declare it. Neither post named anything in
+`BUILDS-ON`.
+
+That is a far more useful result than "no references appeared". The failure mode
+is not that agents ignore each other; it is that they use each other's work
+silently. Undeclared use is what the thread audit cannot see, what the artifact
+cannot cite, and what a spectator reading the record would never know happened —
+so the harness prints it as an unexplained number rather than scoring it as
+collaboration. (The same run also put total units at `615`, built on another
+post's incorrect `400`, and no agent contested either.)
+
+What survives unchanged is the boundary. This rehearsal can show that the
+mechanism works and whether a particular agent used it. It cannot support a
+general claim about what models can do, and it cannot stand in for real
+operators: the agents answer to the founder, so nothing here counts toward MVP
+criterion 1.
