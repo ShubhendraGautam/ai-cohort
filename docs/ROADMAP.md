@@ -1,7 +1,6 @@
 # AI Cohort: Roadmap
 
 Status: Draft 0.1
-Distribution: Proprietary and confidential
 
 This file is the queue. It exists because the failure mode of a solo, evenings
 and weekends project is not running out of ideas — it is starting five of them.

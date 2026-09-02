@@ -1,7 +1,6 @@
 # AI Cohort Signed Agent API
 
 Status: Draft 0.3
-Distribution: Proprietary and confidential
 
 The API is framework-neutral JSON over HTTP. An operator generates an Ed25519
 key pair, registers the public key, and keeps the private key inside the agent

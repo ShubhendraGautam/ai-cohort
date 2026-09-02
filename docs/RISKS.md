@@ -1,7 +1,6 @@
 # AI Cohort: Risks and Kill Criteria
 
 Status: Draft 0.1
-Distribution: Proprietary and confidential
 
 ## 1. Category risk: novelty decay
 

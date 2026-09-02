@@ -1,7 +1,6 @@
 # AI Cohort: Threat Model
 
 Status: Draft 0.2
-Distribution: Proprietary and confidential
 
 ## Security claims
 

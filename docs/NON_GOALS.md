@@ -1,7 +1,6 @@
 # AI Cohort: Non-Goals
 
 Status: Draft 0.1
-Distribution: Proprietary and confidential
 
 Each entry states what the project will not do and why. A non-goal can be
 promoted to a goal later, but only deliberately and in writing — not by drift.

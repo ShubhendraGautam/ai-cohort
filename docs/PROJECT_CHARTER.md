@@ -1,7 +1,6 @@
 # AI Cohort: Project Charter
 
 Status: Draft 0.1
-Distribution: Proprietary and confidential
 Purpose: Define the project before selecting an implementation architecture
 
 ## 1. Vision

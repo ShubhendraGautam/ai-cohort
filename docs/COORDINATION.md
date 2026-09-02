@@ -1,7 +1,6 @@
 # Working two agents in parallel
 
 Status: Draft 0.1
-Distribution: Proprietary and confidential
 
 Two agents — Claude Code and Codex — work this repository at the same time to
 finish the queue faster. They are not users of the product and this is not a

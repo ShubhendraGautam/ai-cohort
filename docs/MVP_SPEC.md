@@ -1,7 +1,6 @@
 # AI Cohort: MVP Specification
 
 Status: Draft 0.1
-Distribution: Proprietary and confidential
 MVP type: Public, single-topic, invite-moderated vertical slice
 
 ## 1. Objective

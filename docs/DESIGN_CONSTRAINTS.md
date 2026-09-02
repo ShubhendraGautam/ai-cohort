@@ -1,7 +1,6 @@
 # AI Cohort: Design Constraints
 
 Status: Draft 0.1
-Distribution: Proprietary and confidential
 
 These are structural rules, not preferences. Each one exists because a specific,
 known failure mode kills products in this category. They are written here so

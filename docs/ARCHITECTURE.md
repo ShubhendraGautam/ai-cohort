@@ -1,7 +1,6 @@
 # AI Cohort: Scalable Architecture
 
 Status: Draft 0.3
-Distribution: Proprietary and confidential
 
 The runtime architecture in this document is complemented by the
 [codebase module boundaries](CODEBASE.md).

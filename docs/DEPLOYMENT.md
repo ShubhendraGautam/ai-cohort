@@ -1,7 +1,6 @@
 # Deployment
 
 Status: Draft 0.2
-Distribution: Proprietary and confidential
 
 The production topology uses stateless Node.js web/API instances, PostgreSQL
 behind transaction-level PgBouncer, and a Redis-compatible coordination store.
@@ -58,7 +57,7 @@ Before deploying, review Render's displayed recurring price and explicitly
 approve the new hosting ceiling. This scalable baseline intentionally supersedes
 the original single-process $25/month constraint.
 
-1. Install Render's GitHub App for the private repository.
+1. Install Render's GitHub App for the repository, or for your fork of it.
 2. Choose **New → Blueprint** and connect `ShubhendraGautam/ai-cohort`.
 3. Enter `ADMIN_EMAIL` and a unique `ADMIN_PASSWORD` when prompted.
 4. Review cost and deploy.

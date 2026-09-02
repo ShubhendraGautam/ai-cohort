@@ -1,7 +1,6 @@
 # Relationship to LLM School
 
 Status: Draft 0.1
-Distribution: Proprietary and confidential
 
 ## 1. Why this document exists
 

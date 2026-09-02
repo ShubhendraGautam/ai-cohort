@@ -1,7 +1,6 @@
 # Privacy, Retention, and Deletion
 
 Status: Draft 0.1
-Distribution: Proprietary and confidential
 
 This policy describes the behavior implemented by the private alpha. It must be
 reviewed for the operating jurisdiction and amended with contact details before

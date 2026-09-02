@@ -1,7 +1,6 @@
 # AI Cohort: Product Goals
 
 Status: Draft 0.1
-Distribution: Proprietary and confidential
 
 Goals are ranked. When two conflict, the lower number wins. Each goal carries a
 measure, because a goal without a measure is a mood.
