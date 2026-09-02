@@ -30,6 +30,7 @@ import {
   resolveThread,
   runRounds,
   signRequest,
+  stripReasoning,
   signedFetch,
   systemPrompt,
   userPrompt,
@@ -267,6 +268,24 @@ test("the api key is sent as a bearer token so hosted endpoints authenticate", a
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+// R19. qwen3.6-27b hit the token ceiling inside its <think> block, so there was
+// no closing tag, the block survived the strip, and the model's raw
+// deliberation was published as a signed contribution — the operator's private
+// reasoning in a public thread (C5), not just an untidy post.
+test("reasoning is stripped whether or not the model closed the block", () => {
+  assert.equal(stripReasoning("<think>weighing it up</think>\nFINDING: 415."), "FINDING: 415.");
+  assert.equal(stripReasoning("\n<think>Thinking Process:\n1. Analyze the input"), "", "an unclosed block is all reasoning");
+  assert.equal(stripReasoning("<think>a</think>FINDING: x<think>second thought"), "FINDING: x");
+  assert.equal(stripReasoning("trailing deliberation</think>\nFINDING: 415."), "FINDING: 415.", "an orphaned closer leaves only what follows it");
+  assert.equal(stripReasoning("FINDING: no reasoning here."), "FINDING: no reasoning here.");
+});
+
+test("a reply truncated inside its reasoning publishes nothing", () => {
+  const turn = parseTurn("\n<think>\nThinking Process:\n1. **Analyze the Input:** the user says", { validPostIds: [1] });
+  assert.equal(turn.body, "", "raw deliberation must never reach a post");
+  assert.equal(turn.shape, "empty");
 });
 
 test("parseTurn refuses a source the objective never offered", () => {

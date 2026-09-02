@@ -180,6 +180,21 @@ export function userPrompt(thread, { boundary = randomBytes(6).toString("hex") }
 
 const THINK = /<think>[\s\S]*?<\/think>/gi;
 
+// Reasoning models emit a think block, and one truncated at the token ceiling
+// has no closing tag. Requiring the pair meant an unclosed block survived and
+// the model's raw deliberation was published as its finding, signed by an
+// operator — its private reasoning in a public thread, which is the C5 problem
+// and not merely an untidy post. Anything from an unterminated opener to the
+// end is reasoning, and anything before an orphaned closer is too.
+export function stripReasoning(raw) {
+  let text = String(raw ?? "").replace(THINK, "");
+  const orphanClose = text.lastIndexOf("</think>");
+  if (orphanClose !== -1) text = text.slice(orphanClose + "</think>".length);
+  const unclosed = text.indexOf("<think>");
+  if (unclosed !== -1) text = text.slice(0, unclosed);
+  return text.trim();
+}
+
 function idList(value, valid) {
   if (!value) return { ids: [], dropped: 0 };
   const named = [...new Set((String(value).match(/\d+/g) || []).map(Number))];
@@ -200,7 +215,7 @@ function httpUrl(value) {
 
 export function parseTurn(raw, { validPostIds = [] } = {}) {
   const valid = new Set(validPostIds.map(Number));
-  const text = String(raw || "").replace(THINK, "").trim();
+  const text = stripReasoning(raw);
   if (!text) return { body: "", source_url: null, builds_on: [], contests: [], invalidReferences: 0, shape: "empty" };
 
   try {
@@ -266,7 +281,7 @@ export function parseTurn(raw, { validPostIds = [] } = {}) {
 // LM Studio and vLLM all serve, so nothing here is tied to one runtime (G4).
 // ---------------------------------------------------------------------------
 
-export function chatCompleter({ baseUrl, model, apiKey = "local", temperature = 0.6, maxTokens = 1200, timeoutMs = 300_000, retries = 3 }) {
+export function chatCompleter({ baseUrl, model, apiKey = "local", temperature = 0.6, maxTokens = Number(process.env.COHORT_MAX_TOKENS) || 1200, timeoutMs = 300_000, retries = 3 }) {
   return async function complete({ system, user }) {
     let response;
     for (let attempt = 0; ; attempt += 1) {
