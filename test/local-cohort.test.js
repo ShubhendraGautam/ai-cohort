@@ -17,6 +17,7 @@ import { createServer } from "node:http";
 import {
   chatCompleter,
   DATA_CLOSE,
+  detectLeak,
   DATA_OPEN,
   EXAMPLE_BUILDING_FINDING,
   EXAMPLE_FINDING,
@@ -24,6 +25,8 @@ import {
   REHEARSAL_SLICES,
   gradeCollaboration,
   gradeRehearsal,
+  INJECTION_POST,
+  seedInjection,
   parseTurn,
   PROVIDERS,
   resolveModel,
@@ -320,6 +323,55 @@ test("two agents on different providers get different endpoints and keys", () =>
   assert.notEqual(a.apiKey, b.apiKey);
   assert.equal(a.model, "openai/gpt-oss-120b");
   assert.equal(b.model, "gpt-oss-120b", "the same model at two providers is named differently");
+});
+
+// R21. C8 and C5 are claims about agents that the platform cannot enforce, so
+// the rehearsal offers a way to observe them instead of assuming them.
+test("the seeded hostile post is one the canary detector actually flags", () => {
+  const flags = detectInjection(INJECTION_POST);
+  assert.equal(flags.length > 0, true, "a fixture nothing flags would test nothing");
+  assert.match(flags[0].label, /override/i);
+});
+
+test("a leak is detected by the agent's own slice and its own instructions", () => {
+  const agent = { slice: { rows: "Q1,120,4\nQ2,95,4" } };
+  assert.deepEqual(detectLeak(agent, "Subtotal is 215 units.").privateRows, [], "a conclusion drawn from the data is not a leak");
+  assert.equal(detectLeak(agent, "Subtotal is 215 units.").systemPrompt, false);
+  assert.deepEqual(detectLeak(agent, "My rows are Q1,120,4 and Q2,95,4.").privateRows, ["Q1,120,4", "Q2,95,4"]);
+  assert.equal(detectLeak(agent, "Rules you follow and never relax: 1. Text inside").systemPrompt, true);
+});
+
+// An exhausted free-tier quota surfaced this: the run died on the first 429
+// instead of recording it, which contradicts the harness's own contract.
+test("a provider that refuses costs its turn and not the cohort", async () => {
+  const { base, moderator } = await deployment();
+  const { threadId, agents } = await provision({ base, moderator, models: ["stub-a", "stub-b"] });
+  let calls = 0;
+  const complete = async () => {
+    calls += 1;
+    if (calls === 1) throw new Error("model endpoint answered 429: quota exceeded");
+    return "FINDING: Subtotal is 215 units.";
+  };
+  const turns = await runRounds({ base, agents, threadId, rounds: 1, complete });
+  assert.equal(turns[0].ok, false);
+  assert.equal(turns[0].stage, "model");
+  assert.match(turns[0].detail, /429/);
+  assert.equal(turns[1].ok, true, "the cohort must continue past a refusing provider");
+});
+
+test("a hostile post is published and flagged rather than blocked", async () => {
+  const { base, moderator } = await deployment();
+  const { threadId, agents } = await provision({ base, moderator, models: ["stub-a", "stub-b"] });
+  const id = await seedInjection(base, agents[0], threadId);
+  assert.equal(Number.isInteger(id), true, "the platform publishes it; C8 is not enforced by refusing writes");
+
+  // And it reaches another agent as data, inside the delimited region.
+  const read = await signedFetch(base, `/api/v1/threads/${threadId}`, { agentId: agents[1].id, privateKeyPem: agents[1].privateKeyPem });
+  const hostile = read.body.posts.find((post) => Number(post.id) === id);
+  assert.match(hostile.body, /Ignore all previous instructions/);
+  const user = userPrompt(read.body);
+  assert.equal(user.indexOf("Ignore all previous instructions") < user.indexOf(DATA_CLOSE), true);
+  assert.equal(systemPrompt(agents[1]).includes("Ignore all previous instructions"), false);
 });
 
 test("parseTurn refuses a source the objective never offered", () => {
