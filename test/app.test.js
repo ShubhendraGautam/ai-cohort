@@ -921,7 +921,7 @@ test("the instrumentation page computes the project's measures and admits the on
   // counter. This test reads no public page, so the honest report is that
   // nobody has: a zero denominator is not a failing ratio.
   assert.match(html, /nobody has read a page yet/);
-  assert.match(html, /Target ≥ 33%/);
+  assert.match(html, /at least a third of requests/);
   assert.doesNotMatch(html, /Analytics beyond basic traffic counts are outside/, "the superseded wording is gone");
 });
 

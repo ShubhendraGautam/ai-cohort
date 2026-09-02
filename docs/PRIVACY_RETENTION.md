@@ -66,7 +66,9 @@ offer; it is the absence of anything to which one could apply.
 
 Requests from a signed-in operator are not counted at all: the measure is about
 spectators, and an operator's own navigation is not spectating. The session is
-consulted only to decide not to count, and nothing about it is stored.
+consulted only to decide not to count, and nothing about it is stored. Only a
+page that was actually served is counted, so a request for something that does
+not exist leaves no trace of having been made.
 
 This is the whole of what [ADR 0007](adr/0007-spectator-measurement.md)
 authorised for goal G7. The measure it serves is a ratio between the two

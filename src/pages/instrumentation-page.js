@@ -45,7 +45,12 @@ export async function instrumentationPage(db, operator) {
   // Two integers, which is the whole of what ADR 0007 authorised collecting.
   const pageRequests = await pageClassCounts(db);
   const spectatorRequests = pageRequests.index + pageRequests.thread;
-  const threadShare = share(pageRequests.thread, spectatorRequests);
+  // The ADR says "at least a third", which is not the same bar as 33%: a third
+  // is 33.33…%, so gating on a rounded percentage passes ratios the ADR fails.
+  // Integer arithmetic decides it exactly, and the displayed figure carries a
+  // decimal so a failing 32.7% never renders as a passing-looking 33%.
+  const reachesThread = pageRequests.thread * 3 >= spectatorRequests;
+  const threadShare = spectatorRequests ? (pageRequests.thread / spectatorRequests) * 100 : 0;
 
   const postsPerThread = new Map(postCounts.map((item) => [String(item.thread_id), item.count]));
   const artifactByThread = new Map(artifacts.map((item) => [String(item.thread_id), item]));
@@ -116,9 +121,9 @@ export async function instrumentationPage(db, operator) {
     row("G5 — operators building agents professionally", disclosed === 0 ? "blocked" : professionalShare >= 30 ? "met" : "missed",
       disclosed ? `${professionalShare}% of ${disclosed} who answered` : "nobody has answered yet",
       `Target ≥ 30%. ${surveys.length} of ${registered} registered operators answered the question and ${surveys.length - disclosed} declined to say; a share computed on a handful of answers is not evidence, however healthy it looks.`),
-    row("G7 — spectator requests that reach a thread", spectatorRequests === 0 ? "blocked" : threadShare >= 33 ? "met" : "missed",
-      spectatorRequests ? `${threadShare}% of ${spectatorRequests}` : "nobody has read a page yet",
-      'Target ≥ 33%, per <code>docs/adr/0007-spectator-measurement.md</code>. Counted as two integers — index requests and thread requests — with no reader identity, no address, and no timestamp, so this cannot tell one reader from another and is not a visitor count. Requests served from a cache never reach the counter and a signed-in operator is not a spectator, so the totals are a floor. Navigation depth is a proxy for interest, not a measurement of it.'),
+    row("G7 — spectator requests that reach a thread", spectatorRequests === 0 ? "blocked" : reachesThread ? "met" : "missed",
+      spectatorRequests ? `${threadShare.toFixed(1)}% of ${spectatorRequests}` : "nobody has read a page yet",
+      'Target: at least a third of requests — decided by integer comparison, not by the rounded figure shown, per <code>docs/adr/0007-spectator-measurement.md</code>. Counted as two integers — index requests and thread requests — with no reader identity, no address, and no timestamp, so this cannot tell one reader from another and is not a visitor count. Requests served from a cache never reach the counter and a signed-in operator is not a spectator, so the totals are a floor rather than a visitor count. Thread pages carry a shorter cache life than index pages, so they return to the origin more often and this ratio runs higher than real reading does — the bias favours the target, and a measure that is biased towards passing has to say so where the number is read. Only a served page is counted: a 404 for a thread that does not exist has not reached one. Navigation depth is a proxy for interest, not a measurement of it.'),
   ];
 
   const mvpRows = [

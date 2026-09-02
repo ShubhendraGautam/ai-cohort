@@ -18,13 +18,21 @@ function originFor(publicBaseUrl) {
 // count; nothing about it is stored, and the counter cannot tell two anonymous
 // readers apart by construction (ADR 0007).
 //
-// Requests served from a cache never reach here, and the public pages carry
-// max-age, so these counts are a floor rather than a total. The measure is a
-// ratio between two classes cached on comparable terms, so the undercount
-// largely divides out — but the number is not a page-view total and must not be
-// quoted as one.
-async function countSpectator(db, operator, pageClass) {
+// Requests served from a cache never reach here, so these counts are a floor
+// rather than a total and must not be quoted as a page-view count.
+//
+// The classes are not cached on comparable terms: indexes carry max-age 20-60
+// and thread pages carry 10, so thread pages return to the origin more often
+// and are over-represented in the ratio relative to real reading. The bias runs
+// towards the target, which is the direction a measure must never be allowed to
+// hide, so it is stated on the instrumentation page rather than only here.
+async function countSpectator(db, operator, pageClass, page) {
   if (operator) return;
+  // Counted after rendering and only for a served 200. Counting first meant
+  // /threads/999999 incremented the thread class while answering 404, which
+  // inflates the numerator of G7's ratio on request — and a renderer that threw
+  // put a page nobody received into the denominator.
+  if ((page.status || 200) !== 200) return;
   await recordPageClassRequest(db, pageClass);
 }
 
@@ -41,13 +49,15 @@ export async function handlePublicRoutes(context) {
     return true;
   }
   if (req.method === "GET" && path === "/") {
-    await countSpectator(db, operator, "index");
-    send(res, await homePage(db, operator), { "cache-control": operator ? "private, no-store" : "public, max-age=30, stale-while-revalidate=120" });
+    const page = await homePage(db, operator);
+    await countSpectator(db, operator, "index", page);
+    send(res, page, { "cache-control": operator ? "private, no-store" : "public, max-age=30, stale-while-revalidate=120" });
     return true;
   }
   if (req.method === "GET" && path === "/topics") {
-    await countSpectator(db, operator, "index");
-    send(res, await topicsPage(db, operator), { "cache-control": operator ? "private, no-store" : "public, max-age=30, stale-while-revalidate=120" });
+    const page = await topicsPage(db, operator);
+    await countSpectator(db, operator, "index", page);
+    send(res, page, { "cache-control": operator ? "private, no-store" : "public, max-age=30, stale-while-revalidate=120" });
     return true;
   }
   if (req.method === "GET" && path === "/api-docs") { send(res, apiDocsPage(operator)); return true; }
@@ -55,8 +65,9 @@ export async function handlePublicRoutes(context) {
   // what the rotation is for, and the guide gives nothing away.
   if (req.method === "GET" && path === "/onboarding") { send(res, onboardingPage(operator)); return true; }
   if (req.method === "GET" && path === "/artifacts") {
-    await countSpectator(db, operator, "index");
-    send(res, await artifactsPage(db, operator, originFor(publicBaseUrl)), { "cache-control": operator ? "private, no-store" : "public, max-age=60, stale-while-revalidate=300" });
+    const page = await artifactsPage(db, operator, originFor(publicBaseUrl));
+    await countSpectator(db, operator, "index", page);
+    send(res, page, { "cache-control": operator ? "private, no-store" : "public, max-age=60, stale-while-revalidate=300" });
     return true;
   }
   if (req.method === "GET" && path === "/artifacts.atom") {
@@ -73,16 +84,18 @@ export async function handlePublicRoutes(context) {
   if (req.method === "GET" && path === "/privacy") { send(res, privacyPage(operator, retentionDays)); return true; }
   let match = path.match(/^\/topics\/([a-z0-9-]+)$/);
   if (req.method === "GET" && match) {
-    await countSpectator(db, operator, "index");
-    send(res, await topicPage(db, match[1], operator), { "cache-control": operator ? "private, no-store" : "public, max-age=20, stale-while-revalidate=60" });
+    const page = await topicPage(db, match[1], operator);
+    await countSpectator(db, operator, "index", page);
+    send(res, page, { "cache-control": operator ? "private, no-store" : "public, max-age=20, stale-while-revalidate=60" });
     return true;
   }
   match = path.match(/^\/threads\/(\d+)$/);
   if (req.method === "GET" && match) {
     // The only 'thread' class: this is the page that carries contributions and
     // the artifact, and reaching it is what the measure is about.
-    await countSpectator(db, operator, "thread");
-    send(res, await threadPage(db, Number(match[1]), operator, originFor(publicBaseUrl)), { "cache-control": operator ? "private, no-store" : "public, max-age=10, stale-while-revalidate=30" });
+    const page = await threadPage(db, Number(match[1]), operator, originFor(publicBaseUrl));
+    await countSpectator(db, operator, "thread", page);
+    send(res, page, { "cache-control": operator ? "private, no-store" : "public, max-age=10, stale-while-revalidate=30" });
     return true;
   }
   return false;

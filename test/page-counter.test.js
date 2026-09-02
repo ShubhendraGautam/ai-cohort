@@ -128,20 +128,45 @@ test("the instrumentation page reports G7's ratio and can fail it", async () => 
   const { db, adminId, base } = await setup();
   const thread = await aThread(db, adminId);
 
-  // Four index reads and one thread read is 20%, below the 33% bar. A measure
-  // that cannot report a failing number is the one ADR 0007 replaced.
+  // Four index reads and one thread read is 20%, below a third. A measure that
+  // cannot report a failing number is the one ADR 0007 replaced.
   for (const path of ["/", "/topics", "/artifacts", "/topics/counted"]) await fetch(`${base}${path}`);
   await fetch(`${base}/threads/${thread.id}`);
 
   const cookie = await adminCookie(base);
   const missed = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie } })).text();
-  assert.match(missed, /20% of 5/);
-  assert.match(missed, /Target ≥ 33%/);
+  assert.match(missed, /20\.0% of 5/);
+  assert.match(missed, /at least a third of requests/);
 
-  // Two more thread reads takes it to 43%.
+  // Two more thread reads: 3 of 7 is 42.9%, and 3 * 3 >= 7.
   for (let i = 0; i < 2; i += 1) await fetch(`${base}/threads/${thread.id}`);
   const met = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie } })).text();
-  assert.match(met, /43% of 7/);
+  assert.match(met, /42\.9% of 7/);
+});
+
+test("a ratio that rounds to a third but is below one does not pass", async () => {
+  const { db, adminId, base } = await setup();
+  const thread = await aThread(db, adminId);
+
+  // codex's case: 32 of 98 is 32.65%, which rounds to 33 and would have passed
+  // a >= 33 gate, but 32 * 3 = 96 < 98, so it is below a third and must fail.
+  // Written straight to the counter: 98 HTTP requests to prove arithmetic is
+  // 98 requests of noise.
+  await db.query("INSERT INTO page_class_requests (page_class, requests) VALUES ('thread', 32), ('index', 66)");
+
+  const cookie = await adminCookie(base);
+  const html = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie } })).text();
+  assert.match(html, /32\.7% of 98/, "the shown figure keeps a decimal so it cannot read as a passing 33%");
+  assert.doesNotMatch(html, /33% of 98/);
+
+  const row = html.slice(html.indexOf("G7 — spectator requests"));
+  assert.match(row.slice(0, 400), /not met/, "below a third is a miss however it rounds");
+
+  // One more thread request makes it exactly a third: 33 * 3 = 99 >= 99.
+  await fetch(`${base}/threads/${thread.id}`);
+  const passing = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie } })).text();
+  const passingRow = passing.slice(passing.indexOf("G7 — spectator requests"));
+  assert.match(passingRow.slice(0, 400), /met/, "exactly a third satisfies 'at least a third'");
 });
 
 test("the instrumentation page says G7 is uncounted before anyone reads", async () => {
@@ -149,4 +174,29 @@ test("the instrumentation page says G7 is uncounted before anyone reads", async 
   const cookie = await adminCookie(base);
   const html = await (await fetch(`${base}/admin/instrumentation`, { headers: { cookie } })).text();
   assert.match(html, /nobody has read a page yet/);
+});
+
+test("a page that was never served is not counted", async () => {
+  const { db, adminId, base } = await setup();
+  const thread = await aThread(db, adminId);
+
+  // Found by codex: counting before rendering meant a bogus id incremented the
+  // thread class while answering 404, inflating the numerator of G7's ratio on
+  // request rather than by accident.
+  assert.equal((await fetch(`${base}/threads/999999`)).status, 404);
+  assert.equal((await fetch(`${base}/topics/no-such-topic`)).status, 404);
+  assert.deepEqual(await pageClassCounts(db), { index: 0, thread: 0 }, "a 404 has not reached a thread");
+
+  await fetch(`${base}/threads/${thread.id}`);
+  await fetch(`${base}/topics/counted`);
+  assert.deepEqual(await pageClassCounts(db), { index: 1, thread: 1 }, "a served page still counts");
+});
+
+test("a page that failed to render does not enter the denominator", async () => {
+  const { db, base } = await setup();
+  // Also codex: a renderer that 500s served no spectator page, so counting it
+  // would depress the ratio with reads that never happened.
+  await db.query("DROP TABLE artifacts CASCADE");
+  assert.equal((await fetch(`${base}/artifacts`)).status, 500);
+  assert.deepEqual(await pageClassCounts(db), { index: 0, thread: 0 });
 });
