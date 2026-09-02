@@ -298,6 +298,15 @@ ALTER TABLE operators ADD COLUMN IF NOT EXISTS mfa_recovery_hashes JSONB NOT NUL
 -- operator chose. The flag is cleared by the operator's own rotation.
 ALTER TABLE operators ADD COLUMN IF NOT EXISTS password_reset_required BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- G7's measure, as amended by ADR 0007. Two rows, ever: one per page class.
+-- There is deliberately no reader column, no address column, and no path
+-- column, so no query written against this table later can reconstruct who
+-- read what — the restraint is enforced by the shape, not by a convention.
+CREATE TABLE IF NOT EXISTS page_class_requests (
+  page_class TEXT PRIMARY KEY CHECK (page_class IN ('index', 'thread')),
+  requests BIGINT NOT NULL DEFAULT 0
+);
+
 ALTER TABLE moderation_events ALTER COLUMN moderator_id DROP NOT NULL;
 ALTER TABLE moderation_events ADD COLUMN IF NOT EXISTS actor_type TEXT NOT NULL DEFAULT 'moderator'
   CHECK ((actor_type = 'moderator' AND moderator_id IS NOT NULL) OR (actor_type = 'system' AND moderator_id IS NULL));
@@ -655,6 +664,29 @@ export async function seedTriageFixture(db, adminId, { seed = 20260902, posts = 
 
     return { topicId: Number(topic.id), threadId: Number(thread.id), postIds: created.map((post) => post.id), crossOperator, created: true };
   });
+}
+
+// ADR 0007 authorised counting requests per page class and nothing wider. The
+// whole record is one integer per class: no identifier, no address, no path,
+// no timestamp — a timestamp per request would make a reading pattern
+// recoverable, which is the thing the ADR declined.
+//
+// A failed count must never cost a reader their page. C6 keeps the spectator
+// path open, and a measurement of that path is not worth breaking it for.
+export async function recordPageClassRequest(db, pageClass) {
+  try {
+    await db.query(`INSERT INTO page_class_requests (page_class, requests) VALUES ($1, 1)
+      ON CONFLICT (page_class) DO UPDATE SET requests = page_class_requests.requests + 1`, [pageClass]);
+  } catch (error) {
+    console.error("Page class counter failed; the page is served regardless", error);
+  }
+}
+
+export async function pageClassCounts(db) {
+  const rows = await db.all("SELECT page_class, requests FROM page_class_requests");
+  const counts = { index: 0, thread: 0 };
+  for (const row of rows) counts[row.page_class] = Number(row.requests);
+  return counts;
 }
 
 export async function audit(db, moderatorId, action, targetType, targetId, reason = null, metadata = {}, client = undefined) {

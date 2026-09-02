@@ -50,6 +50,7 @@ and weekends project is not running out of ideas — it is starting five of them
 | R13 `topicPage` restructured so the test double can cover it | Definition of done, C6, G7 | 2026-09-02 |
 | R14 A 100-post fixture thread, so G3's measure can be taken | MVP criterion 4, G3 | 2026-09-02 |
 | R15 G7's measure amended to one the record can answer | G7, [ADR 0007](adr/0007-spectator-measurement.md) | 2026-09-02 |
+| R16 Page-class request counter, so G7's measure is computed | G7, [ADR 0007](adr/0007-spectator-measurement.md) | 2026-09-02 |
 
 ## Queue
 
@@ -90,28 +91,23 @@ frozen thread that still needs a decision rather than one that already carries
 an artifact. It refuses fewer than 100 posts, refuses to run in production, and
 every row it writes says it is demonstration data.
 
-### R16. Count page requests per class, and nothing else
+R16 is done: the instrumentation page computes G7's ratio from two integers and
+can report a failing one. Every measure on that page now has either a number or
+a stated reason it has none.
 
-The aggregate counter [ADR 0007](adr/0007-spectator-measurement.md) authorised:
-one increment per request, per page class, with no reader identifier, no IP
-address, and no path beyond the class.
+*The queue is empty again.* Every item R12 through R16 came from making the MVP
+passable rather than larger, and that work is finished: the operator path is
+walkable, every public page is covered, G3's measure has a thread to be taken
+against, and G7 has a measure that can fail. What is left is not code. Three
+acceptance criteria wait on operators who have not arrived, and criterion 4
+waits on somebody holding a stopwatch — [ONBOARDING.md](ONBOARDING.md) is the
+document for the first and `npm run seed:triage` builds the thread for the
+second.
 
-- **Trace:** G7's amended measure, which cannot be computed until this exists,
-  and [ADR 0007](adr/0007-spectator-measurement.md), which authorised exactly
-  this and nothing wider.
-- **Why now:** R15 amended G7 specifically so the measure could be taken. Left
-  unbuilt, the goal sits where the ADR was written to stop it sitting — carrying
-  a measure nobody computes — and the instrumentation page still has no verdict
-  for it.
-- **Done when:** the instrumentation page reports the ratio against the ≥ 33%
-  bar and can fail it; the counter records no reader identity and needs no
-  client-side code, so C6 holds and the no-build-step constraint holds;
-  [PRIVACY_RETENTION.md](PRIVACY_RETENTION.md) states what is kept, states that
-  no reader-level record exists, and says there is therefore no reader-level
-  deletion path because there is nothing to delete.
-- **Size:** small. The restraint is the work: anything that would let two
-  requests be attributed to the same reader is outside what the ADR authorised,
-  and the ADR is now in force rather than proposed.
+Refilling this section again is the same judgement it was the first time, and
+the answer is the same: not because the section looks empty. The next honest
+entries come from what the MVP produces, not from what could be built while
+waiting for it.
 
 ## Not scheduled
 

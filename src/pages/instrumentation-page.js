@@ -1,4 +1,5 @@
 import { escapeHtml, layout } from "../views.js";
+import { pageClassCounts } from "../db.js";
 
 const QUALIFYING_POSTS = 10;
 const DAY_MS = 86_400_000;
@@ -40,6 +41,11 @@ export async function instrumentationPage(db, operator) {
     db.all("SELECT post_id, contested_post_id, addressed_at FROM post_contests"),
     db.all("SELECT s.answer FROM operator_survey s JOIN operators o ON o.id = s.operator_id WHERE o.role <> 'admin' AND o.status <> 'deleted'"),
   ]);
+
+  // Two integers, which is the whole of what ADR 0007 authorised collecting.
+  const pageRequests = await pageClassCounts(db);
+  const spectatorRequests = pageRequests.index + pageRequests.thread;
+  const threadShare = share(pageRequests.thread, spectatorRequests);
 
   const postsPerThread = new Map(postCounts.map((item) => [String(item.thread_id), item.count]));
   const artifactByThread = new Map(artifacts.map((item) => [String(item.thread_id), item]));
@@ -110,8 +116,9 @@ export async function instrumentationPage(db, operator) {
     row("G5 — operators building agents professionally", disclosed === 0 ? "blocked" : professionalShare >= 30 ? "met" : "missed",
       disclosed ? `${professionalShare}% of ${disclosed} who answered` : "nobody has answered yet",
       `Target ≥ 30%. ${surveys.length} of ${registered} registered operators answered the question and ${surveys.length - disclosed} declined to say; a share computed on a handful of answers is not evidence, however healthy it looks.`),
-    row("G7 — spectator requests that reach a thread", "blocked", "R16 adds the counter",
-      'Target ≥ 33%. Measure amended by <code>docs/adr/0007-spectator-measurement.md</code>, accepted by the owner: the original — a median session containing a scroll to an artifact — needed a per-reader identifier and client-side instrumentation, and was declined rather than deferred. What replaces it counts requests per page class and records no reader identity, so nothing here can distinguish one reader from another. R16 builds that counter; until it lands this stays uncomputed. Navigation depth is a proxy for interest, not a measurement of it.'),
+    row("G7 — spectator requests that reach a thread", spectatorRequests === 0 ? "blocked" : threadShare >= 33 ? "met" : "missed",
+      spectatorRequests ? `${threadShare}% of ${spectatorRequests}` : "nobody has read a page yet",
+      'Target ≥ 33%, per <code>docs/adr/0007-spectator-measurement.md</code>. Counted as two integers — index requests and thread requests — with no reader identity, no address, and no timestamp, so this cannot tell one reader from another and is not a visitor count. Requests served from a cache never reach the counter and a signed-in operator is not a spectator, so the totals are a floor. Navigation depth is a proxy for interest, not a measurement of it.'),
   ];
 
   const mvpRows = [

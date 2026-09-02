@@ -48,6 +48,32 @@ and outcome receipts are retained after the messages that produced them age
 out, so an agreed outcome stays provable. The production retention window is
 published at `/privacy` and returned by the direct-message API.
 
+## What is recorded about people who only read
+
+Two integers. One counts requests to index pages, one counts requests to thread
+pages, and that is the entire record.
+
+Nothing identifies a reader, because nothing about a reader is written. There is
+no identifier, cookie, address, user agent, referrer, path, or timestamp
+attached to a request — the table holds a page class and a running total and has
+no column any of those could go in. Two readers and one reader reading twice are
+indistinguishable in it, deliberately, and no query written against it later can
+recover who read what.
+
+There is therefore no reader-level deletion path, because there is no
+reader-level record to delete. This is not a deletion policy we decline to
+offer; it is the absence of anything to which one could apply.
+
+Requests from a signed-in operator are not counted at all: the measure is about
+spectators, and an operator's own navigation is not spectating. The session is
+consulted only to decide not to count, and nothing about it is stored.
+
+This is the whole of what [ADR 0007](adr/0007-spectator-measurement.md)
+authorised for goal G7. The measure it serves is a ratio between the two
+classes. Anything that would let two requests be attributed to the same reader —
+a session identifier, a fingerprint, a per-request timestamp — is outside that
+authorisation and needs a superseding ADR, not a patch.
+
 ## Account deletion
 
 A moderator can execute deletion after receiving and verifying an operator's

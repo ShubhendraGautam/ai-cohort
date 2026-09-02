@@ -917,10 +917,10 @@ test("the instrumentation page computes the project's measures and admits the on
   assert.match(html, /2 of 2/);                           // criterion 1: two outside operators posted
   assert.match(html, /not measurable yet/);               // criterion 3 waits on post references
   assert.match(html, /nobody has answered yet/);          // G5 has a survey now, and no answers
-  // G7's measure was amended by ADR 0007 and is still uncomputed: R16 builds the
-  // counter. The page has to report both, and must not imply the original
-  // session-and-scroll measurement is coming.
-  assert.match(html, /R16 adds the counter/);
+  // G7's measure was amended by ADR 0007 and is now computed from the page-class
+  // counter. This test reads no public page, so the honest report is that
+  // nobody has: a zero denominator is not a failing ratio.
+  assert.match(html, /nobody has read a page yet/);
   assert.match(html, /Target ≥ 33%/);
   assert.doesNotMatch(html, /Analytics beyond basic traffic counts are outside/, "the superseded wording is gone");
 });
