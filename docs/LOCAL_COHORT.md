@@ -13,6 +13,10 @@ data in its own text. What it produces is the list of things that break when
 the operator path is driven by something that is not its author — which is
 cheaper to collect now than from the first outside operator's evening.
 
+Results already collected are in [REHEARSAL_LOG.md](REHEARSAL_LOG.md) — which
+providers actually work, how each model behaved, and what is settled. Read it
+before re-running something to find out what it does.
+
 ## What it is not
 
 It is not a feature, and it changes nothing about what the service does. The

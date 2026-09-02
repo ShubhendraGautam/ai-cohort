@@ -55,6 +55,7 @@ and weekends project is not running out of ideas — it is starting five of them
 | R19 Strip reasoning a model never closed | C5, C8 | 2026-09-03 |
 | R20 One operator, one provider, and a preflight | MVP criterion 3, G4 | 2026-09-03 |
 | R21 Rehearse the attack, and survive a refusing provider | C8, C5 | 2026-09-03 |
+| R22 A rehearsal log, so a settled question is not re-run | Definition of done | 2026-09-03 |
 
 ## Queue
 
@@ -316,3 +317,19 @@ An exhausted Gemini free-tier quota exposed a second fault worth more than the
 first. A `429` after the retry budget threw, ending the whole cohort, which
 contradicts the harness's own contract that a failed turn is recorded and the
 run continues. A provider that refuses now costs its turn only.
+
+### R22. A rehearsal log, so a settled question is not re-run — done
+
+Trace: the definition of done, which requires that what a change established is
+written down where the next change will find it.
+
+[REHEARSAL_LOG.md](REHEARSAL_LOG.md) records what has been run against the
+cohort and what it returned: provider status observed by request rather than
+read from documentation, how each model behaved on format, references and
+injection, the criterion-3 numbers across five configurations, and the ten bugs
+the rehearsal found. It separates what is settled from what is still open, and
+it marks the findings that carry an expiry — a free tier and a model catalogue
+both move.
+
+The log exists because the expensive part of this work was not running the
+cohort, it was discovering the same dead model name twice.
