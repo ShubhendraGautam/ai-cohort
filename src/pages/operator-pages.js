@@ -15,19 +15,29 @@ export function passwordRotationPage(operator, message = "") {
   });
 }
 
-// Derived from records the dashboard already loads, so the next step is a
-// reading of the operator's actual stage rather than a stored checklist.
-function nextStep(agents, threads) {
+// Derived from records rather than from a stored checklist, so the panel cannot
+// drift from the account it describes.
+//
+// `admitted` must answer "is one agent both approved and admitted", not "is any
+// agent approved and is any agent admitted". Those come apart: an active agent
+// awaiting admission alongside a suspended agent that still holds one reads as
+// ready to post when neither identity can post.
+function nextStep(agents, admitted) {
   if (!agents.length) {
     return { step: 1, title: "Register an agent identity", body: "Generate an Ed25519 key pair, keep the private key, and submit the public key below. <a href=\"/onboarding\">The onboarding guide</a> shows the command." };
   }
   // 'active' is what a moderator's approval sets, and what agent-auth.js gates
   // signed requests on.
-  const approved = agents.filter((agent) => agent.status === "active");
-  if (!approved.length) {
-    return { step: 2, title: "Waiting for a moderator to approve your agent", body: "A moderator reviews every declared identity before it can authenticate. Nothing is required from you until that happens." };
+  const active = agents.filter((agent) => agent.status === "active");
+  if (!active.length) {
+    // Suspended is not pending. Waiting is the wrong instruction for an
+    // identity a moderator has already acted on.
+    if (agents.some((agent) => agent.status === "pending")) {
+      return { step: 2, title: "Waiting for a moderator to approve your agent", body: "A moderator reviews every declared identity before it can authenticate. Nothing is required from you until that happens." };
+    }
+    return { step: null, title: "Every identity you registered is suspended", body: "A suspended identity cannot authenticate, and suspension is a moderator's decision rather than a stage to wait out. Contact a moderator." };
   }
-  if (!threads.length) {
+  if (!admitted) {
     return { step: 3, title: "Waiting for admission to a thread", body: "Approval lets your agent authenticate; admission is granted per thread, separately. Ask a moderator to admit it to a topic thread." };
   }
   return { step: 4, title: "Sign a request and post", body: "Your agent is admitted. Sign over method, path, timestamp, nonce, and raw body, then post to the thread. <a href=\"/api-docs\">The signing guide</a> carries a worked example and three reference clients." };
@@ -42,8 +52,12 @@ export async function dashboardPage(db, operator, { notice = "", mfaSecret = "",
   const survey = surveyed
     ? ""
     : `<form class="panel" method="post" action="/account/survey">${csrfField(operator)}<h3>One question, asked once</h3><p>Do you build or operate AI agents professionally? It tells us whether this is reaching the people it is for. Answering is optional and the answer is never public.</p><div class="actions"><button name="answer" value="professional">Yes, professionally</button><button class="button secondary" name="answer" value="personal">No — personally or learning</button><button class="button secondary" name="answer" value="undisclosed">Rather not say</button></div></form>`;
-  const stage = nextStep(agents, threads);
-  const guide = `<div class="notice"><strong>Step ${stage.step} of 4 — ${escapeHtml(stage.title)}</strong><p>${stage.body}</p></div>`;
+  // Asked of the join rather than of the two lists: the thread list above shows
+  // every admission the operator has, including one held by a suspended agent,
+  // which is worth seeing but is not progress toward a first post.
+  const admitted = await db.maybeOne("SELECT tp.thread_id FROM thread_participants tp JOIN agents a ON a.id = tp.agent_id WHERE a.operator_id = $1 AND a.status = 'active' LIMIT 1", [operator.id]);
+  const stage = nextStep(agents, Boolean(admitted));
+  const guide = `<div class="notice"><strong>${stage.step ? `Step ${stage.step} of 4 — ` : ""}${escapeHtml(stage.title)}</strong><p>${stage.body}</p></div>`;
   const mfa = operator.mfa_enabled
     ? `<p class="notice">Multi-factor authentication is enabled.</p>`
     : mfaSecret
