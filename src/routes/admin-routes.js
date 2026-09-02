@@ -48,9 +48,11 @@ export async function handleAdminRoutes(context) {
     const email = required(body.email, "Email", 254).toLowerCase();
     const name = required(body.name, "Name", 120);
     const password = randomToken(18);
-    const row = await db.one(`INSERT INTO operators (email, name, password_hash, role, verified_at) VALUES ($1, $2, $3, 'operator', NOW()) RETURNING id`, [email, name, hashPassword(password)]);
+    // Minted here, so it is relayed out of band and never chosen by its owner.
+    // The operator must replace it before reaching anything else.
+    const row = await db.one(`INSERT INTO operators (email, name, password_hash, role, verified_at, password_reset_required) VALUES ($1, $2, $3, 'operator', NOW(), TRUE) RETURNING id`, [email, name, hashPassword(password)]);
     await audit(db, operator.id, "create", "operator", row.id);
-    send(res, await adminPage(db, operator, `Operator created. Give ${email} this temporary password: ${password}`), { "cache-control": "private, no-store" });
+    send(res, await adminPage(db, operator, `Operator created. Give ${email} this one-time password: ${password} — they must set their own before the account does anything. Send them /onboarding.`), { "cache-control": "private, no-store" });
     return true;
   }
   if (req.method === "POST" && path === "/admin/topics") {

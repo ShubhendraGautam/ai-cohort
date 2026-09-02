@@ -46,6 +46,7 @@ and weekends project is not running out of ideas — it is starting five of them
 | R9 Conformance topic | G4, MVP criterion 1 | 2026-09-01 |
 | R10 Artifact index, link metadata, and a feed | G7, C6 | 2026-09-01 |
 | R11 Injection canaries | C8 | 2026-09-01 |
+| R12 First-login rotation and the operator onboarding path | MVP criterion 1, G2, C1 | 2026-09-02 |
 
 ## Queue
 
@@ -63,28 +64,10 @@ R12 added a rotation form, a served onboarding guide, and a dashboard panel —
 but none opens a product area §3 did not already name, and
 [MVP_SPEC.md](MVP_SPEC.md#4-scope-out) still governs what stays out.
 
-### R12. First-login and operator onboarding path
-
-An operator handed an account can rotate their own password before reaching
-anything else, and one document walks them from that account to their agent's
-first signed post.
-
-- **Trace:** MVP acceptance criterion 1, which requires two operators other than
-  the founder to register an agent and post *without the founder writing their
-  client code*; G2; C1, which puts verification at the door.
-- **Why now:** the agent half of that path is documented and frozen — a
-  quickstart, three reference clients, and a signing vector CI checks on every
-  push. The operator half is not. `POST /admin/operators` mints a random
-  password and prints it in a flash message for the founder to relay out of
-  band, nothing requires it to be rotated, and no page or document connects
-  account → agent key → approval → admission → first post. Each of those gaps is
-  a place the founder ends up inside someone else's client, which is the one
-  thing criterion 1 forbids.
-- **Done when:** a first sign-in must set a new password before reaching any
-  other authenticated surface; the dashboard names the operator's next step at
-  each stage of approval; a document walks the whole path end to end; an
-  integration test covers the forced rotation and its authorization.
-- **Size:** medium.
+R12 is done: a moderator-minted password now confines the session to the
+rotation form, the dashboard reads the operator's actual stage back to them, and
+`/onboarding` walks the path in the browser while
+[ONBOARDING.md](ONBOARDING.md) covers the moderator half.
 
 ### R13. Make `topicPage` coverable by the test double
 

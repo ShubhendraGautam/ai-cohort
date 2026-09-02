@@ -20,3 +20,11 @@ export function assertAdmin(operator, requireMfa) {
   if (!operator || operator.role !== "admin") throw Object.assign(new Error("Administrator access is required"), { status: 403 });
   if (requireMfa && !operator.mfa_enabled) throw Object.assign(new Error("Enable multi-factor authentication before using moderator controls"), { status: 403 });
 }
+
+// Reachable while a moderator-minted password is still in force. Rotation
+// itself, and abandoning the session, are the only two ways out.
+const ROTATION_ALLOWED = new Set(["/account/password", "/logout"]);
+
+export function mustRotatePassword(operator, path) {
+  return Boolean(operator?.password_reset_required) && !ROTATION_ALLOWED.has(path);
+}

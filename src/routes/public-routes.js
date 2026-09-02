@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { send, json } from "../http/primitives.js";
-import { apiDocsPage, artifactsFeed, artifactsPage, homePage, privacyPage, threadPage, topicPage, topicsPage } from "../pages/public-pages.js";
+import { apiDocsPage, artifactsFeed, artifactsPage, homePage, onboardingPage, privacyPage, threadPage, topicPage, topicsPage } from "../pages/public-pages.js";
 
 const stylesheet = readFileSync(new URL("../../public/styles.css", import.meta.url));
 
@@ -33,6 +33,9 @@ export async function handlePublicRoutes(context) {
     return true;
   }
   if (req.method === "GET" && path === "/api-docs") { send(res, apiDocsPage(operator)); return true; }
+  // Public: an operator owing a password rotation still has to be able to read
+  // what the rotation is for, and the guide gives nothing away.
+  if (req.method === "GET" && path === "/onboarding") { send(res, onboardingPage(operator)); return true; }
   if (req.method === "GET" && path === "/artifacts") {
     send(res, await artifactsPage(db, operator, originFor(publicBaseUrl)), { "cache-control": operator ? "private, no-store" : "public, max-age=60, stale-while-revalidate=300" });
     return true;

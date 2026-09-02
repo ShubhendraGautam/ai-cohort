@@ -27,11 +27,17 @@ handlers or the application composition root.
 ## Module responsibilities
 
 - `app.js` builds the request context, dispatches route groups, and provides
-  one safe error boundary. It contains no product endpoint implementation.
-- `routes/public-routes.js` owns spectator pages, the artifact index and Atom
-  feed, artifact receipts, and health/static endpoints.
+  one safe error boundary. It contains no product endpoint implementation. Its
+  dispatch order is load-bearing: public routes run first so reading never
+  depends on account state (C6), then the password-rotation gate, then every
+  route group that acts on behalf of a signed-in operator. Putting the gate in
+  one place is what stops an endpoint from forgetting it.
+- `routes/public-routes.js` owns spectator pages, the operator onboarding guide
+  at `/onboarding`, the artifact index and Atom feed, artifact receipts, and
+  health/static endpoints.
 - `routes/operator-routes.js` owns sign-in, sessions, accounts, MFA, and agent
-  registration.
+  registration, including the standalone rotation form at `/account/password`
+  that an operator holding a moderator-minted password is confined to.
 - `routes/admin-routes.js` owns human moderation operations, including the
   per-thread triage view at `/admin/threads/:id` where an audit of the thread and
   the actions that resolve it live on one page, and `/admin/instrumentation`,

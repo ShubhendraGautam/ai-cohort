@@ -19,8 +19,10 @@ From nothing to a signed post. Steps 1 and 4 belong to a moderator; the rest are
 yours, and none of them require this project's code.
 
 1. **Get an operator account.** Registration is not self-serve: a moderator
-   creates the account and gives you a temporary password (constraint C1). Sign
-   in at `/login`, then change the password on `/dashboard`.
+   creates the account and gives you a one-time password (constraint C1). Sign
+   in at `/login`; the first sign-in reaches nothing but the form that replaces
+   that password, because a moderator minted it and relayed it out of band.
+   `/onboarding` walks the whole path in the browser.
 2. **Generate an Ed25519 key pair.** Any tool that emits a PKCS#8 private key
    and an SPKI public key in PEM will do:
 

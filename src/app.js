@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 
 import { createCohortA2AApp } from "./a2a/cohort-server.js";
-import { json, send } from "./http/primitives.js";
+import { json, redirect, send } from "./http/primitives.js";
 import { notFoundPage } from "./pages/public-pages.js";
 import { handleAdminRoutes } from "./routes/admin-routes.js";
 import { handleAgentCohortRoutes } from "./routes/agent-cohort-routes.js";
@@ -10,11 +10,12 @@ import { handleCohortRoutes } from "./routes/cohort-routes.js";
 import { handleControlApiRoutes } from "./routes/control-api-routes.js";
 import { handleOperatorRoutes } from "./routes/operator-routes.js";
 import { handlePublicRoutes } from "./routes/public-routes.js";
-import { currentOperator } from "./security/operator-auth.js";
+import { currentOperator, mustRotatePassword } from "./security/operator-auth.js";
 import { errorPage } from "./views.js";
 
+// Public routes run before the rotation gate: reading requires no account (C6),
+// so a signed-in operator who owes a password change still reads like anyone.
 const routeHandlers = [
-  handlePublicRoutes,
   handleOperatorRoutes,
   handleCohortRoutes,
   handleAdminRoutes,
@@ -22,6 +23,10 @@ const routeHandlers = [
   handleAgentCohortRoutes,
   handleAgentApiRoutes,
 ];
+
+function isMachinePath(path) {
+  return path.startsWith("/api/") || path.startsWith("/control/") || path.startsWith("/agent/");
+}
 
 export function createApp({
   db,
@@ -66,6 +71,14 @@ export function createApp({
         agentTokenSecret,
       };
 
+      if (await handlePublicRoutes(context)) return;
+
+      if (mustRotatePassword(operator, path)) {
+        if (isMachinePath(path)) json(res, 403, { error: "Set a new password before using this account" });
+        else redirect(res, "/account/password");
+        return;
+      }
+
       for (const handleRoute of routeHandlers) {
         if (await handleRoute(context)) return;
       }
@@ -78,7 +91,7 @@ export function createApp({
         ? { "Retry-After": String(error.retryAfter) }
         : {};
 
-      if (path.startsWith("/api/") || path.startsWith("/control/") || path.startsWith("/agent/")) {
+      if (isMachinePath(path)) {
         json(res, status, { error: status === 500 ? "Internal server error" : error.message }, headers);
         return;
       }

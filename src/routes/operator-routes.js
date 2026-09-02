@@ -12,7 +12,7 @@ import {
 } from "../auth.js";
 import { createAgent, createSession, securityEvent } from "../db.js";
 import { redirect, remoteAddress, required, send, webBody } from "../http/primitives.js";
-import { dashboardPage, loginPage } from "../pages/operator-pages.js";
+import { dashboardPage, loginPage, passwordRotationPage } from "../pages/operator-pages.js";
 import { assertCsrf } from "../security/operator-auth.js";
 
 export async function handleOperatorRoutes(context) {
@@ -98,17 +98,38 @@ export async function handleOperatorRoutes(context) {
     send(res, await dashboardPage(db, operator, { notice: "Thank you — that is the only question." }), { "cache-control": "private, no-store" });
     return true;
   }
+  // The only authenticated surface an operator owing a rotation can reach, so
+  // it renders standalone rather than as a panel on the dashboard.
+  if (req.method === "GET" && path === "/account/password") {
+    if (!operator) redirect(res, "/login");
+    else if (operator.password_reset_required) send(res, passwordRotationPage(operator), { "cache-control": "private, no-store" });
+    else redirect(res, "/dashboard");
+    return true;
+  }
   if (req.method === "POST" && path === "/account/password") {
     if (!operator) throw Object.assign(new Error("Sign in first"), { status: 401 });
     const body = await webBody(req); assertCsrf(operator, body);
-    if (!verifyPassword(String(body.current_password || ""), operator.password_hash)) throw Object.assign(new Error("Current password was not accepted"), { status: 403 });
+    const rotating = Boolean(operator.password_reset_required);
+    if (!verifyPassword(String(body.current_password || ""), operator.password_hash)) {
+      if (rotating) {
+        send(res, passwordRotationPage(operator, "The one-time password was not accepted."), { "cache-control": "private, no-store" });
+        return true;
+      }
+      throw Object.assign(new Error("Current password was not accepted"), { status: 403 });
+    }
     const password = required(body.new_password, "New password", 200);
     if (password.length < 12) throw Object.assign(new Error("New password must be at least 12 characters"), { status: 400 });
+    // Reusing the minted password would leave the account on a credential its
+    // owner never chose, which is the thing the rotation exists to end.
+    if (rotating && verifyPassword(password, operator.password_hash)) {
+      send(res, passwordRotationPage(operator, "Choose a password different from the one you were given."), { "cache-control": "private, no-store" });
+      return true;
+    }
     await db.transaction(async (client) => {
-      await db.query("UPDATE operators SET password_hash = $1 WHERE id = $2", [hashPassword(password), operator.id], client);
+      await db.query("UPDATE operators SET password_hash = $1, password_reset_required = FALSE WHERE id = $2", [hashPassword(password), operator.id], client);
       await db.query("DELETE FROM sessions WHERE operator_id = $1", [operator.id], client);
     });
-    await securityEvent(db, "operator", operator.id, "password-changed", remoteAddress(req));
+    await securityEvent(db, "operator", operator.id, "password-changed", remoteAddress(req), { rotation: rotating });
     redirect(res, "/login");
     return true;
   }

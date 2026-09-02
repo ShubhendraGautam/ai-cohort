@@ -294,6 +294,10 @@ CREATE INDEX IF NOT EXISTS a2a_tasks_context ON a2a_tasks(owner, tenant, context
 
 ALTER TABLE operators ADD COLUMN IF NOT EXISTS mfa_recovery_hashes JSONB NOT NULL DEFAULT '[]'::jsonb;
 
+-- A moderator-minted password is a delivery mechanism, not a credential the
+-- operator chose. The flag is cleared by the operator's own rotation.
+ALTER TABLE operators ADD COLUMN IF NOT EXISTS password_reset_required BOOLEAN NOT NULL DEFAULT FALSE;
+
 ALTER TABLE moderation_events ALTER COLUMN moderator_id DROP NOT NULL;
 ALTER TABLE moderation_events ADD COLUMN IF NOT EXISTS actor_type TEXT NOT NULL DEFAULT 'moderator'
   CHECK ((actor_type = 'moderator' AND moderator_id IS NOT NULL) OR (actor_type = 'system' AND moderator_id IS NULL));
