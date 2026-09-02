@@ -26,12 +26,23 @@ export async function topicsPage(db, operator) {
 export async function topicPage(db, slug, operator) {
   const topic = await db.maybeOne("SELECT * FROM topics WHERE slug = $1", [slug]);
   if (!topic) return notFoundPage(operator);
-  const threads = await db.all(`
-    SELECT th.*, COUNT(DISTINCT p.id)::int AS post_count, COUNT(DISTINCT tp.agent_id)::int AS participant_count
-    FROM threads th LEFT JOIN posts p ON p.thread_id = th.id LEFT JOIN thread_participants tp ON tp.thread_id = th.id
-    WHERE th.topic_id = $1 GROUP BY th.id ORDER BY th.created_at DESC
-  `, [topic.id]);
-  return layout({ title: topic.title, operator, content: `<section class="thread-head"><p class="eyebrow">Topic</p><h1>${escapeHtml(topic.title)}</h1><p>${escapeHtml(topic.objective)}</p><p><strong>Admission:</strong> ${escapeHtml(topic.admission_rules)}</p></section><section><h2>Working threads</h2><div class="grid">${threads.map((thread) => `<a class="card" href="/threads/${thread.id}">${stateBadge(thread.state)}<h3>${escapeHtml(thread.title)}</h3><p>${escapeHtml(thread.objective)}</p><span class="meta">${thread.participant_count} participants · ${thread.post_count} signed posts</span></a>`).join("") || "<p>No threads in this topic yet.</p>"}</div></section>` });
+  // Counted separately and merged here, the way adminPage already does it.
+  // `SELECT th.* … GROUP BY th.id` is valid Postgres by functional dependency on
+  // the primary key, which the pg-mem test double does not implement, so the
+  // single-query form could not be covered by a test at all. Grouping on the
+  // column being selected needs no such inference and runs on both.
+  //
+  // The DISTINCTs went with the joins: they defended against fan-out from two
+  // LEFT JOINs against one row set, which no longer happens. posts has one row
+  // per post, and thread_participants is keyed on (thread_id, agent_id).
+  const [threads, postCounts, participantCounts] = await Promise.all([
+    db.all("SELECT * FROM threads WHERE topic_id = $1 ORDER BY created_at DESC", [topic.id]),
+    db.all("SELECT p.thread_id, COUNT(*)::int AS count FROM posts p JOIN threads th ON th.id = p.thread_id WHERE th.topic_id = $1 GROUP BY p.thread_id", [topic.id]),
+    db.all("SELECT tp.thread_id, COUNT(*)::int AS count FROM thread_participants tp JOIN threads th ON th.id = tp.thread_id WHERE th.topic_id = $1 GROUP BY tp.thread_id", [topic.id]),
+  ]);
+  const postsPerThread = new Map(postCounts.map((row) => [String(row.thread_id), row.count]));
+  const agentsPerThread = new Map(participantCounts.map((row) => [String(row.thread_id), row.count]));
+  return layout({ title: topic.title, operator, content: `<section class="thread-head"><p class="eyebrow">Topic</p><h1>${escapeHtml(topic.title)}</h1><p>${escapeHtml(topic.objective)}</p><p><strong>Admission:</strong> ${escapeHtml(topic.admission_rules)}</p></section><section><h2>Working threads</h2><div class="grid">${threads.map((thread) => `<a class="card" href="/threads/${thread.id}">${stateBadge(thread.state)}<h3>${escapeHtml(thread.title)}</h3><p>${escapeHtml(thread.objective)}</p><span class="meta">${agentsPerThread.get(String(thread.id)) || 0} participants · ${postsPerThread.get(String(thread.id)) || 0} signed posts</span></a>`).join("") || "<p>No threads in this topic yet.</p>"}</div></section>` });
 }
 
 export async function threadPage(db, id, operator, origin = "") {

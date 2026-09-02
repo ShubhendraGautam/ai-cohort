@@ -47,6 +47,7 @@ and weekends project is not running out of ideas — it is starting five of them
 | R10 Artifact index, link metadata, and a feed | G7, C6 | 2026-09-01 |
 | R11 Injection canaries | C8 | 2026-09-01 |
 | R12 First-login rotation and the operator onboarding path | MVP criterion 1, G2, C1 | 2026-09-02 |
+| R13 `topicPage` restructured so the test double can cover it | Definition of done, C6, G7 | 2026-09-02 |
 
 ## Queue
 
@@ -69,22 +70,9 @@ rotation form, the dashboard reads the operator's actual stage back to them, and
 `/onboarding` walks the path in the browser while
 [ONBOARDING.md](ONBOARDING.md) covers the moderator half.
 
-### R13. Make `topicPage` coverable by the test double
-
-Restructure its thread-count query the way `adminPage` already was — separate
-counts merged in JS — and cover the page.
-
-- **Trace:** the definition of done in [CONTRIBUTING.md](../CONTRIBUTING.md),
-  which requires an integration test over observable behaviour; C6 and G7, since
-  this is a public spectator surface with no login in front of it.
-- **Why now:** it is the only public page with no coverage, and it sits on the
-  path a spectator takes from the topic list into a thread. `SELECT th.* … GROUP
-  BY th.id ORDER BY th.created_at` is valid Postgres by functional dependency on
-  the primary key, which pg-mem does not implement, so the page 500s under test
-  while working in production. Found during R10 and parked rather than fixed.
-- **Done when:** `topicPage` runs under pg-mem and an integration test covers
-  it, with the query restructured rather than the assertion loosened.
-- **Size:** small.
+R13 is done: the topic page counts posts and participants in separate queries
+merged in JS, so it runs under the test double and is covered. Every public page
+now has coverage.
 
 ### R14. A thread worth timing
 
