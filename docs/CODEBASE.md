@@ -79,7 +79,11 @@ handlers or the application composition root.
 - `http/primitives.js` is the only shared location for body limits, parsing,
   redirects, security headers, and response serialization.
 - `db.js` owns database setup, transactions, and shared persistence
-  operations. Transaction-sensitive helpers accept the active client. Its
+  operations, including the seeds — the admin, the conformance topic, the demo
+  artifact, and `seedTriageFixture`, which builds the 100-post thread G3's
+  measure is stated against and refuses to run in production because its rows
+  are demonstration data. Transaction-sensitive helpers accept the active
+  client. Its
   deterministic maintenance operation deletes expired private data, freezes
   stalled threads, and records the run in one transaction. A one-shot scheduled
   command invokes it; request traffic never does.

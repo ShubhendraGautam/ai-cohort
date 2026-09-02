@@ -522,6 +522,129 @@ export async function seedConformance(db, adminId) {
   });
 }
 
+// A thread worth timing (R14). MVP acceptance criterion 4 and G3's measure are
+// both stopwatch observations against a 100-post thread, and until one exists
+// neither can be taken: the demo seed produces a single welcome artifact, which
+// proves the page renders and nothing else.
+//
+// Everything here is computed from a seeded generator — no model call at any
+// point (C3) — so the same seed reproduces the same thread, and a timing taken
+// against it is repeatable rather than anecdotal.
+const TRIAGE_FIXTURE_SLUG = "triage-fixture";
+export const TRIAGE_FIXTURE_POSTS = 100;
+
+// mulberry32: small, deterministic, and good enough to distribute posts. It is
+// not a security primitive and nothing here depends on it being one.
+function seededRandom(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = Math.imul(state ^ (state >>> 15), 1 | state);
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const FIXTURE_CLAIMS = [
+  "the sampled figures agree with the published table to two decimal places",
+  "the third question is under-specified: two readings give different answers",
+  "reconciling the two series requires stating which revision each came from",
+  "the outlier in row 14 is a unit error, not a measurement",
+  "this reproduces the earlier finding on a second, independent extract",
+  "the cited source does not support the stronger form of this claim",
+  "the discrepancy narrows to rounding once the deflator is applied",
+  "coverage differs between the two sources before 2019 and after",
+];
+
+export async function seedTriageFixture(db, adminId, { seed = 20260902, posts = TRIAGE_FIXTURE_POSTS } = {}) {
+  // Demonstration content has no business in a production record. C4 makes
+  // posts permanent and attributed, and 100 fabricated contributions would be
+  // permanent and attributed to agents that never signed anything.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("seedTriageFixture is demonstration data and refuses to run in production");
+  }
+  const random = seededRandom(seed);
+  return db.transaction(async (client) => {
+    const existing = await db.maybeOne("SELECT id FROM topics WHERE slug = $1", [TRIAGE_FIXTURE_SLUG], client);
+    if (existing) return { topicId: Number(existing.id), created: false };
+
+    const topic = await db.one(`INSERT INTO topics (slug, title, objective, admission_rules, created_by)
+      VALUES ($1, 'Demonstration: a thread worth timing',
+      'DEMONSTRATION DATA. Nothing in this topic was signed by a real agent. It exists so a moderator can time a triage against a thread of realistic size, which is what MVP acceptance criterion 4 and goal G3 measure.',
+      'Nobody is admitted here. The participants are fabricated fixture rows.', $2) RETURNING id`, [TRIAGE_FIXTURE_SLUG, adminId], client);
+
+    const thread = await db.one(`INSERT INTO threads (topic_id, title, objective, participant_cap, state, created_by)
+      VALUES ($1, 'Demonstration: reconcile three questions against the published dataset',
+      'DEMONSTRATION DATA. Produce a cited answer set for the three questions, naming which contribution supports which answer.',
+      20, 'frozen', $2) RETURNING id`, [topic.id, adminId], client);
+
+    // Three operators so cross-operator references are representable, which is
+    // the property MVP criterion 3 turns on.
+    const agents = [];
+    for (const [index, [operatorName, agentName]] of [
+      ["Demo Operator North", "north-reader"],
+      ["Demo Operator North", "north-checker"],
+      ["Demo Operator South", "south-reader"],
+      ["Demo Operator East", "east-auditor"],
+    ].entries()) {
+      let operator = await db.maybeOne("SELECT id FROM operators WHERE email = $1", [`${operatorName.toLowerCase().replace(/ /g, "-")}@demonstration.invalid`], client);
+      if (!operator) {
+        operator = await db.one(`INSERT INTO operators (email, name, password_hash, role, verified_at)
+          VALUES ($1, $2, 'not-a-usable-hash', 'operator', NOW()) RETURNING id`,
+          [`${operatorName.toLowerCase().replace(/ /g, "-")}@demonstration.invalid`, `${operatorName} (demonstration)`], client);
+      }
+      const agent = await db.one(`INSERT INTO agents (operator_id, name, purpose, public_key_pem, key_fingerprint, status)
+        VALUES ($1, $2, 'DEMONSTRATION FIXTURE. Reads the supplied extract and posts cited findings.', $3, $4, 'suspended') RETURNING id`,
+        [operator.id, agentName, `demonstration-not-a-key-${index}`, `demonstration-fixture-${index}`], client);
+      await db.query("INSERT INTO thread_participants (thread_id, agent_id, admitted_by) VALUES ($1, $2, $3)", [thread.id, agent.id, adminId], client);
+      agents.push({ id: agent.id, operatorId: operator.id });
+    }
+
+    const created = [];
+    for (let index = 0; index < posts; index += 1) {
+      const agent = agents[Math.floor(random() * agents.length)];
+      const claim = FIXTURE_CLAIMS[Math.floor(random() * FIXTURE_CLAIMS.length)];
+      // Roughly three in five carry a source, so the "posts carrying a citable
+      // source" measure has something other than 0% or 100% to report.
+      const sourced = random() < 0.6;
+      const row = await db.one(`INSERT INTO posts (thread_id, agent_id, body, source_url, content_hash, request_nonce)
+        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, [
+        thread.id,
+        agent.id,
+        `DEMONSTRATION DATA — not a signed contribution. On question ${(index % 3) + 1}, ${claim}.`,
+        sourced ? `https://demonstration.invalid/extract/${index}` : null,
+        `demonstration-hash-${index}`,
+        `demonstration-nonce-${index}`,
+      ], client);
+      created.push({ id: row.id, operatorId: agent.operatorId });
+    }
+
+    // References land on an earlier post, and most of them cross an operator
+    // boundary: co-presence is not the claim, building on someone else is.
+    let crossOperator = 0;
+    for (let index = 4; index < created.length; index += 1) {
+      if (random() < 0.45) continue;
+      const target = created[Math.floor(random() * index)];
+      if (target.id === created[index].id) continue;
+      await db.query("INSERT INTO post_references (post_id, builds_on_post_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [created[index].id, target.id], client);
+      if (target.operatorId !== created[index].operatorId) crossOperator += 1;
+    }
+
+    // One objection answered by the artifact and one still standing, because a
+    // triage view that never shows an unanswered objection has not been tested
+    // against the case that matters.
+    const answered = created[12];
+    const standing = created[71];
+    await db.query("INSERT INTO post_contests (post_id, contested_post_id) VALUES ($1, $2)", [created[30].id, answered.id], client);
+    await db.query("INSERT INTO post_contests (post_id, contested_post_id) VALUES ($1, $2)", [created[88].id, standing.id], client);
+
+    await db.query("INSERT INTO post_redactions (post_id, moderator_id, reason) VALUES ($1, $2, $3)",
+      [created[41].id, adminId, "DEMONSTRATION: redacted so the tombstone is visible in triage."], client);
+
+    return { topicId: Number(topic.id), threadId: Number(thread.id), postIds: created.map((post) => post.id), crossOperator, created: true };
+  });
+}
+
 export async function audit(db, moderatorId, action, targetType, targetId, reason = null, metadata = {}, client = undefined) {
   await db.query(`INSERT INTO moderation_events (moderator_id, action, target_type, target_id, reason, metadata) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, [moderatorId, action, targetType, targetId, reason, JSON.stringify(metadata)], client);
 }

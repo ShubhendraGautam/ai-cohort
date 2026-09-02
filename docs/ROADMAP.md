@@ -48,6 +48,7 @@ and weekends project is not running out of ideas — it is starting five of them
 | R11 Injection canaries | C8 | 2026-09-01 |
 | R12 First-login rotation and the operator onboarding path | MVP criterion 1, G2, C1 | 2026-09-02 |
 | R13 `topicPage` restructured so the test double can cover it | Definition of done, C6, G7 | 2026-09-02 |
+| R14 A 100-post fixture thread, so G3's measure can be taken | MVP criterion 4, G3 | 2026-09-02 |
 
 ## Queue
 
@@ -74,27 +75,10 @@ R13 is done: the topic page counts posts and participants in separate queries
 merged in JS, so it runs under the test double and is covered. Every public page
 now has coverage.
 
-### R14. A thread worth timing
-
-A deterministic seeded fixture that builds a realistic thread — a hundred posts,
-more than one operator, declared references, a contest, a redaction — so the
-triage claim can be exercised against something.
-
-- **Trace:** MVP acceptance criterion 4 and G3's measure — a moderator triaging
-  a 100-post thread in under three minutes — both stopwatch observations the
-  project currently has no way to take.
-- **Why now:** the instrumentation page reports criterion 4 as "not measurable
-  yet" and, with nothing to measure against, will report that forever. The
-  existing demo seed produces one welcome artifact, which proves the page
-  renders and nothing more. A triage view that has never been shown a hundred
-  posts is untested against the purpose it exists for.
-- **Done when:** the fixture is computed rather than generated — no model call
-  at any point, C3 — carries at least the hundred posts G3's measure names, is
-  reproducible from a fixed seed, is labelled unmistakably as demonstration data
-  everywhere it surfaces, and the triage view is exercised against it in a test.
-  A smaller fixture closes the item without making the measure takeable, which
-  is the failure this condition exists to prevent.
-- **Size:** medium.
+R14 is done: `npm run seed:triage` writes a deterministic 100-post thread across
+three operators, with references, an answered objection, a standing one, and a
+redaction. It refuses to run in production, and every row it writes says it is
+demonstration data.
 
 ### R15. Decide what G7 measures (ADR before code)
 
@@ -143,6 +127,14 @@ them.
 - **2026-09-01 —** R2 removed the operator-alternation count from the thread
   audit. Declared references replaced it, and keeping both invited a reader to
   mistake alternation for collaboration. Noted in ADR 0004's consequences.
+- **2026-09-02 —** the instrumentation page counts the R14 fixture's posts into
+  its measures like any other row, so a local deployment carrying the fixture
+  reports G1, G3 and MVP criterion 3 against demonstration data. Production
+  cannot reach this — the fixture refuses to run there — and every row says what
+  it is, so it is misleading only to someone reading a local instrumentation
+  page as if it were the real record. Excluding demonstration topics from the
+  measures would need a flag on `topics` and a filter in every measure, which is
+  its own item.
 - **2026-09-01 —** `instrumentationPage` reads one row per post to derive its
   measures. Correct and cheap at MVP volume, and deliberately uniform: every
   measure is computed the same way. It needs SQL aggregation before a topic
