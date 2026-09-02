@@ -40,6 +40,9 @@ jobs:
       DATABASE_SSL: disable
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The canonical-json contract vector lives in the gator-tools submodule.
+          submodules: true
       - uses: actions/setup-node@v6
         with:
           node-version: 24
