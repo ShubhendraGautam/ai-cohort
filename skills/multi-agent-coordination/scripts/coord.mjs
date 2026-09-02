@@ -34,6 +34,17 @@ import {
 import { LocalStore, readJson, writeJsonAtomically } from "./local-store.mjs";
 import { RedisStore } from "./redis-store.mjs";
 
+function patchIdentity(root, from, to) {
+  const diff = runGit(root, ["diff", from, to], { optional: true });
+  if (diff === null || !diff.trim()) return null;
+  try {
+    const output = execFileSync("git", ["patch-id", "--stable"], { cwd: root, encoding: "utf8", input: diff });
+    return output.trim().split(/\s+/)[0] || null;
+  } catch {
+    return null;
+  }
+}
+
 function runGit(cwd, args, { optional = false } = {}) {
   try {
     return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -483,12 +494,36 @@ async function main() {
     if (!claim) fail(`${id} has no claim`);
     const integratedHead = branchHead(claim.branch);
     if (!integratedHead) fail(`Cannot resolve branch head for ${claim.branch}`);
+    // Fast-forward and merge commits leave the reviewed commit reachable from the
+    // base. Squash and rebase do not, and the project is entitled to either, so a
+    // rewritten integration is accepted when it provably introduces the same
+    // change — never on the operator's say-so.
+    let integration = null;
     const contained = runGit(root, ["merge-base", "--is-ancestor", integratedHead, config.base], { optional: true });
-    if (contained === null) fail(`${integratedHead} is not contained in ${config.base}; merge before done`);
+    if (contained === null) {
+      const declared = typeof flags["merged-as"] === "string" ? flags["merged-as"] : null;
+      if (!declared) {
+        fail(`${integratedHead} is not contained in ${config.base}; merge it, or if the project squashes or rebases, pass --merged-as <commit in ${config.base}>`);
+      }
+      const merged = runGit(root, ["rev-parse", "--verify", `${declared}^{commit}`], { optional: true });
+      if (!merged) fail(`--merged-as ${declared} does not name a commit`);
+      if (runGit(root, ["merge-base", "--is-ancestor", merged, config.base], { optional: true }) === null) {
+        fail(`--merged-as ${merged} is not contained in ${config.base}`);
+      }
+      const forkPoint = runGit(root, ["merge-base", config.base, integratedHead], { optional: true });
+      const parent = runGit(root, ["rev-parse", "--verify", `${merged}^`], { optional: true });
+      const reviewedChange = forkPoint && patchIdentity(root, forkPoint, integratedHead);
+      const mergedChange = parent && patchIdentity(root, parent, merged);
+      if (!reviewedChange || !mergedChange || reviewedChange !== mergedChange) {
+        fail(`--merged-as ${merged} does not introduce the same change as ${claim.branch}; compare the two diffs, and if the difference is intended close with --force --authority human --reason "..."`);
+      }
+      integration = { mode: "equivalent", commit: merged, patchId: mergedChange };
+    }
     await activeStore.mutate((draft) => completeClaim(draft, {
       id,
       agent,
       integratedHead,
+      integration,
       note: flags.note,
       forced: Boolean(flags.force),
       authority: flags.authority,

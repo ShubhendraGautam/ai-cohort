@@ -285,3 +285,42 @@ test("Redis backend delivers one broadcast to every independent agent cursor", {
     rmSync(repo, { recursive: true, force: true });
   }
 });
+
+test("a squash-merged claim closes only against an equivalent commit", async () => {
+  const repo = repository();
+  try {
+    initialize(repo, { quorum: 1 });
+    for (const agent of ["worker", "peer", "integrator"]) coord(repo, ["join", "--agent", agent]);
+
+    git(repo, "checkout", "-q", "-b", "feat/squash");
+    writeFileSync(join(repo, "src", "widget.js"), "export const widget = 1;\n");
+    git(repo, "add", ".");
+    git(repo, "commit", "-m", "add widget");
+    coord(repo, ["claim", "T1", "--agent", "worker", "--branch", "feat/squash", "--files", "src/widget.js", "--reviewers", "peer"]);
+    coord(repo, ["ready", "T1", "--agent", "worker", "--evidence", "suite green; src/widget.js:1 covered"]);
+    coord(repo, ["review", "T1", "--agent", "peer", "--verdict", "approve", "--evidence", "read src/widget.js:1 and ran the suite"]);
+
+    // The project squashes, which SKILL.md permits, so the reviewed commit never
+    // becomes an ancestor of main.
+    git(repo, "checkout", "-q", "main");
+    git(repo, "merge", "--squash", "feat/squash");
+    git(repo, "commit", "-m", "squashed feat/squash");
+    const squashed = git(repo, "rev-parse", "HEAD");
+
+    const refusal = coord(repo, ["done", "T1", "--agent", "worker", "--note", "squash-merged into main"], 1);
+    assert.match(refusal, /pass --merged-as/);
+
+    // An unrelated commit that is genuinely in main must not satisfy it.
+    writeFileSync(join(repo, "src", "other.js"), "export const other = 1;\n");
+    git(repo, "add", ".");
+    git(repo, "commit", "-m", "unrelated");
+    const impostor = coord(repo, ["done", "T1", "--agent", "worker", "--note", "wrong commit", "--merged-as", git(repo, "rev-parse", "HEAD")], 1);
+    assert.match(impostor, /does not introduce the same change/);
+
+    coord(repo, ["done", "T1", "--agent", "worker", "--note", "squash-merged into main", "--merged-as", squashed]);
+    const status = coord(repo, ["status"]);
+    assert.match(status, /T1\s+done/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});

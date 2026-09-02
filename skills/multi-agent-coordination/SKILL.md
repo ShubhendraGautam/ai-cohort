@@ -135,6 +135,20 @@ node <skill-dir>/scripts/coord.mjs done TASK-12 --agent agent-a \
   --note "merged into the configured base after quorum approval"
 ```
 
+`done` expects the reviewed commit to be reachable from the base, which holds
+for fast-forward and merge commits. A project that squashes or rebases rewrites
+the commit, so name the commit that carried the work in instead:
+
+```sh
+node <skill-dir>/scripts/coord.mjs done TASK-12 --agent agent-a \
+  --note "squash-merged into main" --merged-as 2e37732
+```
+
+That commit must be contained in the base and must introduce the same change as
+the reviewed branch, compared by patch identity rather than taken on trust. A
+commit that is genuinely in the base but carries a different change is refused;
+closing anyway needs `--force --authority human --reason "..."`.
+
 Each agent cleans only its own branches and worktrees. Use human-authorized forced release, completion, leave, or local lock recovery only as explicit exceptions with recorded reasons.
 
 Run `node <skill-dir>/scripts/coord.mjs help` for the full command reference. Run `npm test` inside this skill directory after modifying its tooling.

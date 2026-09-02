@@ -330,7 +330,7 @@ export function releaseClaim(state, { id, agent, forced = false, authority = nul
   return { result: claim, events: [event(forced ? "claim.forced-release" : "claim.release", agent, { task: id, payload: forced ? { authority, reason, previousAgent: claim.agent } : null })] };
 }
 
-export function completeClaim(state, { id, agent, integratedHead, note, forced = false, authority = null, reason = null }) {
+export function completeClaim(state, { id, agent, integratedHead, integration = null, note, forced = false, authority = null, reason = null }) {
   requireJoined(state, agent);
   const claim = requireClaim(state, id);
   requireActive(claim, id);
@@ -346,8 +346,12 @@ export function completeClaim(state, { id, agent, integratedHead, note, forced =
   claim.state = "done";
   claim.doneAt = now();
   claim.note = requireEvidence(note);
+  // How the reviewed commit reached the base: contained in it, or merged under a
+  // strategy that rewrites commits, in which case the equivalent commit and the
+  // patch identity that proved it are recorded rather than asserted.
+  if (integration) claim.integration = integration;
   if (forced) claim.override = { authority, reason, agent, at: now() };
-  return { result: claim, events: [event(forced ? "claim.forced-done" : "claim.done", agent, { task: id, payload: { integratedHead, note: claim.note, ...(forced ? { authority, reason } : {}) } })] };
+  return { result: claim, events: [event(forced ? "claim.forced-done" : "claim.done", agent, { task: id, payload: { integratedHead, ...(integration ? { integration } : {}), note: claim.note, ...(forced ? { authority, reason } : {}) } })] };
 }
 
 export function liveAgents(state, at = Date.now()) {
