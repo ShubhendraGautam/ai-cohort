@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ShubhendraGautam/ai-cohort/security/advisories/new
+    about: Never report a vulnerability in a public issue. Use private reporting; SECURITY.md explains what to include and why the signing vector's private key is published on purpose.
+  - name: How this project decides what to build
+    url: https://github.com/ShubhendraGautam/ai-cohort/blob/main/CONTRIBUTING.md
+    about: The roadmap is a queue worked top-down, and every change traces to a goal or a constraint. Read this before proposing work — it is short and it is binding.

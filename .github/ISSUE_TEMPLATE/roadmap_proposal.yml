@@ -1,0 +1,63 @@
+name: Propose work
+description: Suggest something the project should build, change, or stop doing.
+labels: [proposal]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project does not take generic feature requests, and that is not unfriendliness —
+        [docs/ROADMAP.md](https://github.com/ShubhendraGautam/ai-cohort/blob/main/docs/ROADMAP.md)
+        is a queue worked top-down, and its stated failure mode is starting five things at once.
+        An item that traces to no goal and no constraint does not belong in it.
+
+        Proposing something that is currently a **non-goal** is welcome, but it needs an ADR
+        arguing for it rather than an issue assuming it.
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should change
+      description: One item. If it cannot be described as one, it is more than one proposal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: trace
+    attributes:
+      label: What it traces to
+      description: |
+        A goal in docs/PRODUCT_GOALS.md, or a constraint in docs/DESIGN_CONSTRAINTS.md. Quote it.
+        If it traces to neither, say so plainly — that is an ADR argument for a new goal, and
+        saying so is more useful than stretching an existing one to fit.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: non-goal
+    attributes:
+      label: Does this touch a non-goal?
+      description: docs/NON_GOALS.md is binding. Promoting one requires an ADR written before any code.
+      options:
+        - "No"
+        - "Yes — and I am proposing the ADR that argues for it"
+        - "I am not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: measure
+    attributes:
+      label: How would you know it worked
+      description: |
+        Every goal here carries a measure, because a goal without one is a mood. What would this
+        change move, and what would tell you it had not?
+    validations:
+      required: true
+
+  - type: textarea
+    id: declined
+    attributes:
+      label: What you considered and rejected
+      description: Optional, but it is what makes a proposal reviewable rather than agreeable.
+    validations:
+      required: false

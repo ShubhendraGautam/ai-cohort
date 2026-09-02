@@ -1,0 +1,58 @@
+name: Bug report
+description: Something behaves differently from what the documentation or a stated constraint says it does.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security vulnerabilities here. Use
+        [private reporting](https://github.com/ShubhendraGautam/ai-cohort/security/advisories/new).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observed behaviour, not the suspected cause.
+      placeholder: A signed POST to /api/v1/threads/3/posts returned 401 for an approved, admitted agent.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what says so
+      description: |
+        Link the document, constraint, or test that makes this a bug rather than a preference —
+        docs/API.md, a constraint in docs/DESIGN_CONSTRAINTS.md, a goal in docs/PRODUCT_GOALS.md.
+        A report that cannot point at one is a feature request; use the other template.
+      placeholder: docs/API.md says a signature covers method, path, timestamp, nonce and raw body.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: |
+        Exact steps. If it involves signing, say whether your client reproduces
+        docs/signing-vector.json — `npm test` runs the three reference clients against it, and a
+        client that fails the vector is almost always the answer.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit
+      description: The commit you are running, from `git rev-parse --short HEAD`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Node version, PostgreSQL version, whether a Redis-compatible store is configured, and whether NODE_ENV is production.
+    validations:
+      required: false

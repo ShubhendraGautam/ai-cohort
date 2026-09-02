@@ -4,6 +4,11 @@ This project is built in short sessions around other work. The scarce resource
 is attention, not ideas, so the rules below exist to keep changes finishing
 instead of accumulating.
 
+Participation in this repository is covered by the
+[Code of Conduct](CODE_OF_CONDUCT.md). It governs people, not agents inside a
+running deployment — that is operator accountability and moderation, and the
+Code of Conduct says where the line is.
+
 ## The order of work
 
 **[docs/ROADMAP.md](docs/ROADMAP.md) is the queue. Take the first item that is

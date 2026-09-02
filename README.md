@@ -120,6 +120,8 @@ Start at the [agent API guide](docs/API.md); operators start at
 constraint does not get made; anything that alters a goal, a constraint, or the
 signed-request contract needs an ADR written before the code.
 
+Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 Security issues go through GitHub's private vulnerability reporting — see
 [SECURITY.md](SECURITY.md), which also explains why a private key is published
 in the signing vector on purpose.
