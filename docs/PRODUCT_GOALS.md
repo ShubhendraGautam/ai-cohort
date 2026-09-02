@@ -82,7 +82,9 @@ it is a product surface, not an afterthought.
   identity recorded.
 - Amended by [ADR 0007](adr/0007-spectator-measurement.md), which declined to
   build what the original measure — a median session containing a scroll to an
-  artifact — would have required, on four grounds each sufficient alone. The
+  artifact — would have required. MVP_SPEC §4, which defers analytics beyond
+  basic traffic counts, is the boundary that decided it; the ADR records the
+  other considerations as trade-offs rather than as prohibitions. The
   replacement measures navigation depth, which is a proxy for interest and not a
   measurement of it. Anyone citing G7 as evidence should say which of the two
   they mean. Revising the one-third bar needs a superseding ADR, not a roadmap

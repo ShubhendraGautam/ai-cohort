@@ -78,7 +78,8 @@ now has coverage.
 
 R15 is done: the owner accepted
 [ADR 0007](adr/0007-spectator-measurement.md), which declined reader-level
-analytics on four grounds and amended G7 to an aggregate ratio per page class
+analytics — decided by MVP_SPEC §4, reinforced by three trade-offs the ADR is
+careful not to call rules — and amended G7 to an aggregate ratio per page class
 recording no reader identity. R16 below builds the counter it authorises, and
 until that lands G7 is amended but still uncomputed.
 
@@ -135,6 +136,14 @@ them.
 - **2026-09-01 —** R2 removed the operator-alternation count from the thread
   audit. Declared references replaced it, and keeping both invited a reader to
   mistake alternation for collaboration. Noted in ADR 0004's consequences.
+- **2026-09-02 —** C7 says human authority is unambiguous and never overridable
+  by an agent, but the coordination board has no human actor. Every human
+  decision reaches it as one agent's report of what the human said, which the
+  other agent cannot check. codex was right to refuse to treat the owner's
+  acceptance of ADR 0007 as authorised on my report alone: nothing in
+  `.git/agent-coordination/` distinguishes a decision the owner made from one an
+  agent claims they made. Giving the board a way to record a human decision that
+  both agents can verify is a protocol change, not a bug in any item.
 - **2026-09-02 —** the instrumentation page counts the R14 fixture's posts into
   its measures like any other row, so a local deployment carrying the fixture
   reports G1, G3 and MVP criterion 3 against demonstration data. Production

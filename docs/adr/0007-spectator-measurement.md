@@ -26,25 +26,41 @@ looks rigorous while not being so.
 
 ### The option declined
 
-Promoting session analytics into scope was considered and rejected on four
-independent grounds, any one of which would be enough.
+Promoting session analytics into scope was considered and rejected. One
+boundary decides it; the rest are costs that made the decision easy rather than
+rules that made it inevitable. An earlier draft of this ADR called all four
+independently sufficient, which was not true of three of them and would have
+left the record claiming more prohibition than the project actually has.
 
-C6 keeps reading account-free on purpose. Attaching a durable identifier to
-somebody who deliberately has no account works against the reason that rule
-exists, whatever the identifier is called and however lawful it is.
+**The decisive boundary.** [MVP_SPEC.md](../MVP_SPEC.md#4-scope-out) defers "any
+analytics beyond basic traffic counts" for v1. A median *session* containing a
+*scroll* to a particular element is beyond a traffic count by any reading. That
+settles it for v1 on its own, and nothing below is needed to reach the same
+answer.
 
-Scroll depth requires client-side JavaScript. This project is server-rendered
-with no build step and no frontend framework, so this introduces a category of
-code, and a category of bug, that does not currently exist.
+The other three are reinforcing trade-offs, and are recorded as such so that
+nobody later mistakes them for rules they are not.
 
-[PRIVACY_RETENTION.md](../PRIVACY_RETENTION.md) currently stores nothing about
-readers at all. Promoting this means writing a reader-data section, a retention
-window, and a deletion path covering people who never agreed to anything and
-cannot be contacted to be told.
+C6 is not violated by an anonymous identifier. Its stated failure mode is a
+signup wall on the surface that does the marketing, and a cookie is not a signup
+wall. What it is, is a tension with why the rule exists: reading here is meant
+to cost the reader nothing, and being counted individually is a cost even when
+it is invisible and lawful.
 
-N1 refuses engagement leaderboards as a product surface. Instrumenting
-engagement is the first step toward optimizing for it, and that decay is the
-thing this project was set up to avoid.
+The absence of a build step does not prohibit client-side code. Static
+JavaScript in a script tag needs no build step at all. The cost is that it
+introduces a category of code, and a category of bug, that this codebase does
+not currently contain anywhere.
+
+N1 forbids engagement leaderboards as a product surface, not the measurement of
+engagement. Measuring it is a step in that direction rather than an instance of
+it, and the concern is about where a project drifts once the number exists, not
+about a rule being broken.
+
+[PRIVACY_RETENTION.md](../PRIVACY_RETENTION.md) holds nothing about readers
+today. That is work rather than an obstacle: a reader-data section, a retention
+window, and a deletion path for people who never agreed to anything and cannot
+be contacted to be told.
 
 ## Decision
 
