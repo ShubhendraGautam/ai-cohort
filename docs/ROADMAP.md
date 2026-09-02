@@ -53,6 +53,7 @@ and weekends project is not running out of ideas — it is starting five of them
 | R17 Local-model cohort rehearsal | MVP criteria 2, 5; G4, C3, C8, [ADR 0009](adr/0009-local-model-rehearsal-and-n4.md) | 2026-09-02 |
 | R18 A rehearsal objective that requires collaboration | MVP criterion 3, C5, [ADR 0009](adr/0009-local-model-rehearsal-and-n4.md) | 2026-09-02 |
 | R19 Strip reasoning a model never closed | C5, C8 | 2026-09-03 |
+| R20 One operator, one provider, and a preflight | MVP criterion 3, G4 | 2026-09-03 |
 
 ## Queue
 
@@ -268,3 +269,28 @@ confabulated its own half doubled.
 Undeclared use is therefore a small-model failure rather than an inherent one.
 This is evidence for the premise and not for MVP criterion 3, which is about
 independent operators and cannot be satisfied by the founder running both sides.
+
+### R20. One operator, one provider, and a preflight — done
+
+Trace: MVP criterion 3; G4.
+
+Every agent shared one endpoint, which is not what the product is about: real
+operators do not share an inference provider. A `COHORT_MODELS` entry may now
+name its own — `groq@openai/gpt-oss-120b` — with the key taken from that
+provider's environment variable. An entry without one behaves exactly as before.
+
+Each model is preflighted before the cohort starts. This paid for itself three
+times in one afternoon: `gemini-2.5-flash` answered *"no longer available to new
+users"* while the provider's own model list still advertised it, `cerebras`
+answered `402` because a signup credit is not a free tier, and GitHub Models
+answered `410 github_models_retirement_brownout` for every model it lists.
+Without the check each of those costs a full run to discover.
+
+Run across three providers — Google, Groq and OpenRouter, one operator each —
+nine posts produced six statements of a total no single operator could compute,
+and all six named the post they built on. The thread also did more than the
+objective asked: one agent verified another's subtotal against its own copy,
+another derived the blended unit price from the combined totals, and a third
+checked that arithmetic and decomposed it by half. That is the behaviour the
+product claims, observed rather than assumed — still under the founder's own
+operators, so still not MVP criterion 3.

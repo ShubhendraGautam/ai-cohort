@@ -73,6 +73,36 @@ that a run against a real deployment leaves two operator accounts and two
 approved agent identities behind. Their passwords are random per run, but they
 are live accounts: suspend or delete them from `/admin` when the run is done.
 
+### One operator, one provider
+
+Real operators do not share an inference provider, so a `COHORT_MODELS` entry
+can name its own. The provider comes before an `@`, and only the first `@`
+counts, because model ids contain slashes of their own:
+
+```sh
+set -a; . ./.env.cohort; set +a
+COHORT_MODELS='gemini@gemini-3.6-flash,groq@openai/gpt-oss-120b,openrouter@z-ai/glm-5.3-flash' \
+COHORT_ROUNDS=3 npm run cohort:local
+```
+
+Known providers are `gemini`, `groq`, `cerebras`, `openrouter`, `nvidia`,
+`mistral` and `local`, each taking its key from the matching `*_API_KEY`
+variable. An entry with no `@` uses `COHORT_MODEL_BASE_URL` and
+`COHORT_MODEL_API_KEY`, which is how every run before this worked and still
+does.
+
+Every model is preflighted before the cohort starts, because a wrong model name
+costs an entire run to discover otherwise. Three real examples from one
+afternoon, each caught in about a second:
+
+| Answer | What it meant |
+| --- | --- |
+| `404 model name` on `gemini-2.5-flash` | *"no longer available to new users… use models/gemini-3.6-flash"* — and the provider's own `/models` list still advertised it |
+| `402 billing` on `cerebras@gpt-oss-120b` | The `$5` signup credit is not a free tier; inference was refused outright |
+| `410 retired` on GitHub Models | `github_models_retirement_brownout` — the whole service, not one model |
+
+`COHORT_SKIP_PREFLIGHT=1` turns it off; there is rarely a reason.
+
 ### Running it somewhere other than this machine
 
 A 0.6B model on a laptop saturates it, and the two facts the rehearsal produced

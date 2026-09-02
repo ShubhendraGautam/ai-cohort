@@ -25,6 +25,8 @@ import {
   gradeCollaboration,
   gradeRehearsal,
   parseTurn,
+  PROVIDERS,
+  resolveModel,
   provision,
   report,
   resolveThread,
@@ -286,6 +288,38 @@ test("a reply truncated inside its reasoning publishes nothing", () => {
   const turn = parseTurn("\n<think>\nThinking Process:\n1. **Analyze the Input:** the user says", { validPostIds: [1] });
   assert.equal(turn.body, "", "raw deliberation must never reach a post");
   assert.equal(turn.shape, "empty");
+});
+
+// R20. Operators do not share an inference provider, so a rehearsal that forces
+// every agent onto one endpoint is testing something the product is not.
+test("a model entry can name its own provider, and one without still works", () => {
+  const env = { GROQ_API_KEY: "g-key", GEMINI_API_KEY: "m-key" };
+  const groq = resolveModel("groq@openai/gpt-oss-120b", { env });
+  assert.equal(groq.provider, "groq");
+  assert.equal(groq.model, "openai/gpt-oss-120b", "only the first @ separates; the model keeps its slashes");
+  assert.equal(groq.baseUrl, PROVIDERS.groq.baseUrl);
+  assert.equal(groq.apiKey, "g-key");
+
+  const plain = resolveModel("qwen3:0.6b", { baseUrl: "http://127.0.0.1:11434/v1", apiKey: "local", env });
+  assert.equal(plain.provider, null);
+  assert.equal(plain.model, "qwen3:0.6b");
+  assert.equal(plain.baseUrl, "http://127.0.0.1:11434/v1", "the pre-R20 form must keep working unchanged");
+});
+
+test("an unknown provider or a missing key fails before a run is spent", () => {
+  assert.throws(() => resolveModel("notaprovider@m", { env: {} }), /Unknown provider/);
+  assert.throws(() => resolveModel("groq@", { env: { GROQ_API_KEY: "k" } }), /No model named/);
+  assert.throws(() => resolveModel("groq@m", { env: {} }), /GROQ_API_KEY/);
+});
+
+test("two agents on different providers get different endpoints and keys", () => {
+  const env = { GROQ_API_KEY: "g", CEREBRAS_API_KEY: "c" };
+  const a = resolveModel("groq@openai/gpt-oss-120b", { env });
+  const b = resolveModel("cerebras@gpt-oss-120b", { env });
+  assert.notEqual(a.baseUrl, b.baseUrl);
+  assert.notEqual(a.apiKey, b.apiKey);
+  assert.equal(a.model, "openai/gpt-oss-120b");
+  assert.equal(b.model, "gpt-oss-120b", "the same model at two providers is named differently");
 });
 
 test("parseTurn refuses a source the objective never offered", () => {

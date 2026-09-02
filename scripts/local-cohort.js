@@ -315,6 +315,59 @@ export function chatCompleter({ baseUrl, model, apiKey = "local", temperature = 
   };
 }
 
+// Operators do not share an inference provider, so neither should the agents in
+// a rehearsal. A COHORT_MODELS entry may name one: "groq@openai/gpt-oss-120b".
+// Without a provider it falls back to COHORT_MODEL_BASE_URL, which is how every
+// run before R20 was written and which still works unchanged.
+export const PROVIDERS = {
+  gemini: { baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", keyEnv: "GEMINI_API_KEY" },
+  groq: { baseUrl: "https://api.groq.com/openai/v1", keyEnv: "GROQ_API_KEY" },
+  cerebras: { baseUrl: "https://api.cerebras.ai/v1", keyEnv: "CEREBRAS_API_KEY" },
+  openrouter: { baseUrl: "https://openrouter.ai/api/v1", keyEnv: "OPENROUTER_API_KEY" },
+  nvidia: { baseUrl: "https://integrate.api.nvidia.com/v1", keyEnv: "NVIDIA_API_KEY" },
+  mistral: { baseUrl: "https://api.mistral.ai/v1", keyEnv: "MISTRAL_API_KEY" },
+  local: { baseUrl: "http://127.0.0.1:11434/v1", keyEnv: null },
+};
+
+// A model id contains slashes of its own ("openai/gpt-oss-120b"), so the
+// provider is separated by "@" and only the first one is significant.
+export function resolveModel(entry, { baseUrl, apiKey, env = process.env } = {}) {
+  const at = String(entry).indexOf("@");
+  if (at === -1) return { provider: null, model: String(entry).trim(), baseUrl, apiKey };
+  const name = entry.slice(0, at).trim().toLowerCase();
+  const model = entry.slice(at + 1).trim();
+  const provider = PROVIDERS[name];
+  if (!provider) throw new Error(`Unknown provider "${name}" in "${entry}". Known: ${Object.keys(PROVIDERS).join(", ")}`);
+  if (!model) throw new Error(`No model named after "${name}@" in "${entry}"`);
+  const key = provider.keyEnv ? env[provider.keyEnv] : "local";
+  if (provider.keyEnv && !key) throw new Error(`${name} needs ${provider.keyEnv}; it is unset. Load .env.cohort first.`);
+  return { provider: name, model, baseUrl: provider.baseUrl, apiKey: key || "local" };
+}
+
+// Cheap enough to run before every cohort, and it turns a wrong model name or a
+// retired service into one line instead of a wasted run. Both cost a full
+// rehearsal to discover at least once.
+export async function preflight(resolved, { timeoutMs = 60_000 } = {}) {
+  try {
+    const response = await fetch(`${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${resolved.apiKey}` },
+      body: JSON.stringify({ model: resolved.model, messages: [{ role: "user", content: "hi" }], max_tokens: 1 }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (response.ok) return { ok: true, status: response.status };
+    const detail = (await response.text()).slice(0, 160);
+    const cause = response.status === 401 || response.status === 403 ? "key"
+      : response.status === 402 ? "billing — free credits exhausted or never granted"
+      : response.status === 410 ? "model or service retired"
+      : response.status === 404 || response.status === 400 ? "model name"
+      : response.status === 429 ? "rate limited (the run may still work)" : "unknown";
+    return { ok: response.status === 429, status: response.status, cause, detail };
+  } catch (error) {
+    return { ok: false, status: 0, cause: "unreachable", detail: String(error.message).slice(0, 160) };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The operator path, walked over HTTP exactly as a person walks it. Nothing
 // here reaches into the database: if a step is broken in the browser it is
@@ -660,7 +713,7 @@ async function inProcessDeployment() {
 // Provision one operator per model, so an agent building on another agent is an
 // agent building on another operator's work — the thing MVP criterion 3 is
 // about. One operator running two models would not test it.
-export async function provision({ base, moderator, models }) {
+export async function provision({ base, moderator, models, modelBaseUrl, modelApiKey }) {
   const moderatorCookie = await signIn(base, moderator.email, moderator.password);
   const topicId = await createTopic(base, moderatorCookie, REHEARSAL_TOPIC);
   const threadId = await createThread(base, moderatorCookie, { topicId, ...REHEARSAL_THREAD });
@@ -673,7 +726,8 @@ export async function provision({ base, moderator, models }) {
     // on a real deployment and a predictable password would be a way in.
     const cookie = await rotatePassword(base, { email, oneTimePassword, newPassword: `rehearsal-${randomBytes(24).toString("base64url")}` });
     const keys = agentKeyPair();
-    const name = model.replace(/[^A-Za-z0-9.-]/g, "-").slice(0, 60);
+    const resolved = resolveModel(model, { baseUrl: modelBaseUrl, apiKey: modelApiKey });
+    const name = `${resolved.provider ? `${resolved.provider}-` : ""}${resolved.model}`.replace(/[^A-Za-z0-9.-]/g, "-").slice(0, 60);
     // Each operator holds a different half of the table, so the thread's totals
     // are unreachable without another operator's contribution. Slices repeat if
     // more models than slices are given, which weakens the measure rather than
@@ -684,7 +738,7 @@ export async function provision({ base, moderator, models }) {
     await approveAgent(base, moderatorCookie, registered.id);
     await admit(base, moderatorCookie, threadId, registered.id);
     const privateData = `You hold ${slice.quarters} only, as quarter,units,unit_price rows:\n${slice.rows}`;
-    agents.push({ ...registered, name, model, operator: email, purpose, privateData, slice, ...keys });
+    agents.push({ ...registered, name, model, resolved, operator: email, purpose, privateData, slice, ...keys });
   }
   return { moderatorCookie, topicId, threadId, agents };
 }
@@ -705,14 +759,20 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     : await inProcessDeployment();
 
   try {
-    console.log(`Rehearsal against ${deployment.base}, models from ${modelBaseUrl}: ${models.join(", ")}`);
-    const { moderatorCookie, threadId, agents } = await provision({ base: deployment.base, moderator: deployment.moderator, models });
+    console.log(`Rehearsal against ${deployment.base}`);
+    for (const entry of models) {
+      const resolved = resolveModel(entry, { baseUrl: modelBaseUrl, apiKey: modelApiKey });
+      const check = process.env.COHORT_SKIP_PREFLIGHT ? { ok: true, status: "skipped" } : await preflight(resolved);
+      console.log(`  ${check.ok ? "ok " : "FAIL"} ${resolved.provider || "default"} ${resolved.model} (${check.status}${check.cause ? `, ${check.cause}` : ""})${check.detail ? ` — ${check.detail}` : ""}`);
+      if (!check.ok) throw new Error(`Preflight failed for ${entry}: ${check.cause}. Fix it before spending a run.`);
+    }
+    const { moderatorCookie, threadId, agents } = await provision({ base: deployment.base, moderator: deployment.moderator, models, modelBaseUrl, modelApiKey });
     console.log(`Thread ${threadId}; ${agents.length} agents, one per operator.\n`);
 
     // Keyed by agent id, not name: two operators may legitimately run the same
     // model, and the agent name is derived from it, so names collide across
     // operators while ids never do.
-    const completers = new Map(agents.map((agent) => [agent.id, chatCompleter({ baseUrl: modelBaseUrl, model: agent.model, apiKey: modelApiKey })]));
+    const completers = new Map(agents.map((agent) => [agent.id, chatCompleter({ baseUrl: agent.resolved.baseUrl, model: agent.resolved.model, apiKey: agent.resolved.apiKey })]));
     const turns = await runRounds({
       base: deployment.base,
       agents,
