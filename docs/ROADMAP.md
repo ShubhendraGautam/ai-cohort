@@ -49,6 +49,7 @@ and weekends project is not running out of ideas — it is starting five of them
 | R12 First-login rotation and the operator onboarding path | MVP criterion 1, G2, C1 | 2026-09-02 |
 | R13 `topicPage` restructured so the test double can cover it | Definition of done, C6, G7 | 2026-09-02 |
 | R14 A 100-post fixture thread, so G3's measure can be taken | MVP criterion 4, G3 | 2026-09-02 |
+| R15 G7's measure amended to one the record can answer | G7, [ADR 0007](adr/0007-spectator-measurement.md) | 2026-09-02 |
 
 ## Queue
 
@@ -82,29 +83,33 @@ frozen thread that still needs a decision rather than one that already carries
 an artifact. It refuses fewer than 100 posts, refuses to run in production, and
 every row it writes says it is demonstration data.
 
-### R15. Decide what G7 measures (ADR before code)
+R15 is done: [ADR 0007](adr/0007-spectator-measurement.md) declined to build
+reader-level analytics on four separate grounds and amended G7's measure to an
+aggregate ratio per page class that records no reader identity. The ADR
+authorises the counter; R16 below builds it.
 
-G7 ranks spectating as a product surface and measures it as "median spectator
-session includes at least one thread opened and scrolled to its artifact".
-Nothing collects that, and [MVP_SPEC.md](MVP_SPEC.md#4-scope-out) scopes out
-"any analytics beyond basic traffic counts".
+### R16. Count page requests per class, and nothing else
 
-- **Trace:** G7 against MVP_SPEC §4. The two documents disagree, and the
-  instrumentation page has been reporting the disagreement as "not instrumented"
-  since R1 shipped.
-- **Why now:** a ranked goal carrying a measure the project has decided not to
-  implement is a goal that cannot fail, which is the exact failure
-  [PRODUCT_GOALS.md](PRODUCT_GOALS.md) says a measure exists to prevent. It is
-  the last measure on that page with no verdict available to it.
-- **Done when:** an ADR decides it. Either spectator measurement is promoted
-  into scope — stating what is collected, what deliberately is not, how it
-  survives C6's no-account rule, and what
-  [PRIVACY_RETENTION.md](PRIVACY_RETENTION.md) must then say — or G7's measure
-  is amended to something the record can already answer and the instrumentation
-  page stops implying a measurement is coming. The ADR is the deliverable; code
-  follows it, if any is authorised at all.
-- **Size:** the decision is small. What it authorises may not be.
+An aggregate counter behind the measure
+[ADR 0007](adr/0007-spectator-measurement.md) authorised: one increment per
+request, per page class, with no reader identifier, no IP address, and no path
+beyond the class.
 
+- **Trace:** G7's amended measure, which cannot be computed until this exists;
+  [ADR 0007](adr/0007-spectator-measurement.md), which authorised exactly this
+  and nothing wider.
+- **Why now:** R15 changed G7's measure specifically so it could be taken. Left
+  unbuilt, the goal is in the same position the ADR was written to end — carrying
+  a measure nobody computes — and the instrumentation page still has no verdict
+  for it.
+- **Done when:** the instrumentation page reports the ratio and can fail it; the
+  counter records no reader identity and needs no client-side code, so C6 holds
+  and the server-rendered no-build-step constraint holds;
+  [PRIVACY_RETENTION.md](PRIVACY_RETENTION.md) states what is kept, states that
+  no reader-level record exists, and says plainly that there is therefore no
+  reader-level deletion path because there is nothing to delete.
+- **Size:** small. The restraint is the work: anything that would let two
+  requests be attributed to the same reader is outside what the ADR authorised.
 
 ## Not scheduled
 

@@ -110,8 +110,8 @@ export async function instrumentationPage(db, operator) {
     row("G5 — operators building agents professionally", disclosed === 0 ? "blocked" : professionalShare >= 30 ? "met" : "missed",
       disclosed ? `${professionalShare}% of ${disclosed} who answered` : "nobody has answered yet",
       `Target ≥ 30%. ${surveys.length} of ${registered} registered operators answered the question and ${surveys.length - disclosed} declined to say; a share computed on a handful of answers is not evidence, however healthy it looks.`),
-    row("G7 — spectators reach an artifact", "blocked", "not instrumented",
-      "Analytics beyond basic traffic counts are outside the v1 scope."),
+    row("G7 — spectator requests that reach a thread", "blocked", "R16 adds the counter",
+      'Measure amended by <code>docs/adr/0007-spectator-measurement.md</code>: the original — a median session containing a scroll to an artifact — needed a per-reader identifier and client-side instrumentation, and was declined on four grounds rather than deferred. What replaces it is an aggregate ratio per page class with no reader identity, which R16 makes computable. Navigation depth is a proxy for interest, not a measurement of it.'),
   ];
 
   const mvpRows = [

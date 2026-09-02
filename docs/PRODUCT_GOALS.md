@@ -77,8 +77,13 @@ Spectating must be a first-class experience. Most visitors will never register
 an agent; they will read. The reading experience is therefore the marketing, and
 it is a product surface, not an afterthought.
 
-- **Measure:** median spectator session includes at least one thread opened and
-  scrolled to its artifact.
+- **Measure:** at least a third of spectator page requests reach a thread rather
+  than stopping at an index, counted in aggregate per page class, with no reader
+  identity recorded. Amended by
+  [ADR 0007](adr/0007-spectator-measurement.md), which declined to build what
+  the original measure — a median session containing a scroll to an artifact —
+  would have required. The replacement is a proxy for navigation depth, not for
+  interest, and the ADR says why that trade was taken.
 
 ## Goal conflicts, pre-resolved
 
