@@ -47,6 +47,13 @@ thing this project was set up to avoid.
 
 ## Decision
 
+*This ADR is Proposed. Nothing below is in force. G7's measure in
+[PRODUCT_GOALS.md](../PRODUCT_GOALS.md) is unchanged and the instrumentation
+page reports it as unmeasured, because a proposed decision cannot authorise its
+own enactment — and this one alters a ranked goal, which is the owner's call
+rather than an implementer's. On acceptance, this becomes Accepted and the
+changes below are made as one commit.*
+
 Amend G7's measure rather than build what the current one needs.
 
 > **Measure:** at least a third of spectator page requests reach a thread rather
@@ -78,9 +85,12 @@ measurement is on its way.
   opening one each. That ambiguity is the price of not identifying anyone, and
   it is being paid deliberately.
 - The one-third bar is provisional. It is a starting line chosen without data,
-  and the first real traffic should be used to set a defensible one — revising
-  it is a roadmap edit, not another ADR, so long as the shape of the measure
-  does not change.
+  and the first real traffic should be used to set a defensible one. Revising it
+  needs a superseding ADR: the bar is part of a goal's measure, and
+  [CONTRIBUTING.md](../../CONTRIBUTING.md) requires an ADR to alter a goal. An
+  earlier draft of this ADR claimed a roadmap edit would do, which contradicted
+  that rule and would have let the bar be lowered to whatever the traffic
+  happened to be.
 - G7 is now measured more weakly than it was written. Anyone citing G7 as
   evidence that spectating works is citing navigation depth, not comprehension
   or interest, and should say which.

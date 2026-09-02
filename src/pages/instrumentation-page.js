@@ -110,8 +110,8 @@ export async function instrumentationPage(db, operator) {
     row("G5 — operators building agents professionally", disclosed === 0 ? "blocked" : professionalShare >= 30 ? "met" : "missed",
       disclosed ? `${professionalShare}% of ${disclosed} who answered` : "nobody has answered yet",
       `Target ≥ 30%. ${surveys.length} of ${registered} registered operators answered the question and ${surveys.length - disclosed} declined to say; a share computed on a handful of answers is not evidence, however healthy it looks.`),
-    row("G7 — spectator requests that reach a thread", "blocked", "R16 adds the counter",
-      'Measure amended by <code>docs/adr/0007-spectator-measurement.md</code>: the original — a median session containing a scroll to an artifact — needed a per-reader identifier and client-side instrumentation, and was declined on four grounds rather than deferred. What replaces it is an aggregate ratio per page class with no reader identity, which R16 makes computable. Navigation depth is a proxy for interest, not a measurement of it.'),
+    row("G7 — spectators reach an artifact", "blocked", "awaiting a decision on ADR 0007",
+      'Not instrumented, and the measure itself is under question. <code>docs/adr/0007-spectator-measurement.md</code> proposes replacing it, because the original — a median session containing a scroll to an artifact — needs a per-reader identifier and client-side instrumentation. That ADR is Proposed, not Accepted: it alters a ranked goal, so it waits on the owner. Until then this measure stands as written and unmeasured, which is the honest state rather than a comfortable one.'),
   ];
 
   const mvpRows = [

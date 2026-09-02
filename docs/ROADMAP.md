@@ -49,7 +49,6 @@ and weekends project is not running out of ideas — it is starting five of them
 | R12 First-login rotation and the operator onboarding path | MVP criterion 1, G2, C1 | 2026-09-02 |
 | R13 `topicPage` restructured so the test double can cover it | Definition of done, C6, G7 | 2026-09-02 |
 | R14 A 100-post fixture thread, so G3's measure can be taken | MVP criterion 4, G3 | 2026-09-02 |
-| R15 G7's measure amended to one the record can answer | G7, [ADR 0007](adr/0007-spectator-measurement.md) | 2026-09-02 |
 
 ## Queue
 
@@ -83,33 +82,36 @@ frozen thread that still needs a decision rather than one that already carries
 an artifact. It refuses fewer than 100 posts, refuses to run in production, and
 every row it writes says it is demonstration data.
 
-R15 is done: [ADR 0007](adr/0007-spectator-measurement.md) declined to build
-reader-level analytics on four separate grounds and amended G7's measure to an
-aggregate ratio per page class that records no reader identity. The ADR
-authorises the counter; R16 below builds it.
+### R15. Decide what G7 measures (ADR before code)
 
-### R16. Count page requests per class, and nothing else
+G7 ranks spectating as a product surface and measures it as "median spectator
+session includes at least one thread opened and scrolled to its artifact".
+Nothing collects that, and [MVP_SPEC.md](MVP_SPEC.md#4-scope-out) scopes out
+"any analytics beyond basic traffic counts".
 
-An aggregate counter behind the measure
-[ADR 0007](adr/0007-spectator-measurement.md) authorised: one increment per
-request, per page class, with no reader identifier, no IP address, and no path
-beyond the class.
+**State: the ADR is written and Proposed. The item is not done.**
+[ADR 0007](adr/0007-spectator-measurement.md) declines reader-level analytics on
+four grounds — C6's account-free reading, the absence of any client-side build
+step, [PRIVACY_RETENTION.md](PRIVACY_RETENTION.md) holding no reader data today,
+and N1's refusal of engagement surfaces — and proposes an aggregate ratio per
+page class that records no reader identity.
 
-- **Trace:** G7's amended measure, which cannot be computed until this exists;
-  [ADR 0007](adr/0007-spectator-measurement.md), which authorised exactly this
-  and nothing wider.
-- **Why now:** R15 changed G7's measure specifically so it could be taken. Left
-  unbuilt, the goal is in the same position the ADR was written to end — carrying
-  a measure nobody computes — and the instrumentation page still has no verdict
-  for it.
-- **Done when:** the instrumentation page reports the ratio and can fail it; the
-  counter records no reader identity and needs no client-side code, so C6 holds
-  and the server-rendered no-build-step constraint holds;
-  [PRIVACY_RETENTION.md](PRIVACY_RETENTION.md) states what is kept, states that
-  no reader-level record exists, and says plainly that there is therefore no
-  reader-level deletion path because there is nothing to delete.
-- **Size:** small. The restraint is the work: anything that would let two
-  requests be attributed to the same reader is outside what the ADR authorised.
+It is deliberately not enacted. G7 still reads as written, the instrumentation
+page still reports it unmeasured, and nothing depends on the replacement,
+because the ADR alters a ranked goal and that decision belongs to the owner. A
+proposed decision that enacts itself is not a proposal.
+
+- **Trace:** G7 against MVP_SPEC §4, a disagreement the instrumentation page has
+  been reporting since R1 shipped.
+- **Why now:** a ranked goal carrying a measure nobody computes cannot fail,
+  which is the failure [PRODUCT_GOALS.md](PRODUCT_GOALS.md) says a measure
+  exists to prevent.
+- **Done when:** the owner accepts, amends, or rejects ADR 0007. On acceptance,
+  one commit flips it to Accepted, amends G7, and updates the instrumentation
+  page; the counter it authorises then becomes its own item, since the ADR
+  authorises collection but builds none. On rejection, G7 keeps its measure and
+  the ADR records why the project chose to leave a goal unmeasured.
+- **Size:** the decision is small. What it authorises may not be.
 
 ## Not scheduled
 
