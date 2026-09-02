@@ -917,11 +917,12 @@ test("the instrumentation page computes the project's measures and admits the on
   assert.match(html, /2 of 2/);                           // criterion 1: two outside operators posted
   assert.match(html, /not measurable yet/);               // criterion 3 waits on post references
   assert.match(html, /nobody has answered yet/);          // G5 has a survey now, and no answers
-  // G7 is unmeasured and its measure is itself under question. The page must
-  // say both, and must not report against a replacement nobody has accepted.
-  assert.match(html, /awaiting a decision on ADR 0007/);
-  assert.match(html, /Proposed, not Accepted/);
-  assert.doesNotMatch(html, /at least a third/, "an unaccepted measure is not reported as the measure");
+  // G7's measure was amended by ADR 0007 and is still uncomputed: R16 builds the
+  // counter. The page has to report both, and must not imply the original
+  // session-and-scroll measurement is coming.
+  assert.match(html, /R16 adds the counter/);
+  assert.match(html, /Target ≥ 33%/);
+  assert.doesNotMatch(html, /Analytics beyond basic traffic counts are outside/, "the superseded wording is gone");
 });
 
 test("a post declares what it builds on, and only within its own thread", async () => {

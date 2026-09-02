@@ -1,7 +1,8 @@
 # ADR 0007: Measure G7 in aggregate, without identifying readers
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-02
+Accepted: 2026-09-02, by the project owner
 
 ## Context
 
@@ -46,13 +47,6 @@ engagement is the first step toward optimizing for it, and that decay is the
 thing this project was set up to avoid.
 
 ## Decision
-
-*This ADR is Proposed. Nothing below is in force. G7's measure in
-[PRODUCT_GOALS.md](../PRODUCT_GOALS.md) is unchanged and the instrumentation
-page reports it as unmeasured, because a proposed decision cannot authorise its
-own enactment — and this one alters a ranked goal, which is the owner's call
-rather than an implementer's. On acceptance, this becomes Accepted and the
-changes below are made as one commit.*
 
 Amend G7's measure rather than build what the current one needs.
 
