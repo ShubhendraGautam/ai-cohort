@@ -6,6 +6,14 @@
 data
 docs
 test
-scripts
+# scripts/ is deliberately NOT excluded. The Dockerfile copies two named files
+# from it -- the maintenance entry points the cron service runs -- and nothing
+# else, so the image contains only those two whatever else sits in the
+# directory. Excluding the directory here and copying out of it there is what
+# broke the build: R4 and R6 added those COPY lines against a .dockerignore that
+# had excluded scripts/ since before either landed, so the image has never built
+# since R4. Re-including single files under an excluded directory would also
+# work, but it depends on .dockerignore negation semantics; naming what to copy
+# in the Dockerfile does not.
 node_modules
 npm-debug.log
