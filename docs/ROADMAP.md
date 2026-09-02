@@ -56,9 +56,12 @@ not arrived yet, and one — a moderator triaging a full thread in under three
 minutes — reports "not measurable yet" on the instrumentation page and will keep
 reporting it until there is a thread worth timing.
 
-These four items make the MVP *passable*, not larger. None of them adds product
-surface, because [MVP_SPEC.md](MVP_SPEC.md#7-explicitly-not-proven-by-this-mvp)
-is explicit that building past the criteria proves nothing about them.
+These items refine scope the MVP already has rather than extending it. Each
+completes something [MVP_SPEC.md](MVP_SPEC.md#3-scope-in) already lists, or makes
+a measure the project already declared actually takeable. They do add surface —
+R12 added a rotation form, a served onboarding guide, and a dashboard panel —
+but none opens a product area §3 did not already name, and
+[MVP_SPEC.md](MVP_SPEC.md#4-scope-out) still governs what stays out.
 
 ### R12. First-login and operator onboarding path
 
@@ -102,21 +105,24 @@ counts merged in JS — and cover the page.
 
 ### R14. A thread worth timing
 
-A deterministic seeded fixture that builds a realistic thread — enough posts,
+A deterministic seeded fixture that builds a realistic thread — a hundred posts,
 more than one operator, declared references, a contest, a redaction — so the
 triage claim can be exercised against something.
 
-- **Trace:** MVP acceptance criterion 4 and G3's measure, both stopwatch
-  observations the project currently has no way to take.
+- **Trace:** MVP acceptance criterion 4 and G3's measure — a moderator triaging
+  a 100-post thread in under three minutes — both stopwatch observations the
+  project currently has no way to take.
 - **Why now:** the instrumentation page reports criterion 4 as "not measurable
   yet" and, with nothing to measure against, will report that forever. The
   existing demo seed produces one welcome artifact, which proves the page
   renders and nothing more. A triage view that has never been shown a hundred
   posts is untested against the purpose it exists for.
 - **Done when:** the fixture is computed rather than generated — no model call
-  at any point, C3 — is reproducible from a fixed seed, is labelled
-  unmistakably as demonstration data everywhere it surfaces, and the triage view
-  is exercised against it in a test.
+  at any point, C3 — carries at least the hundred posts G3's measure names, is
+  reproducible from a fixed seed, is labelled unmistakably as demonstration data
+  everywhere it surfaces, and the triage view is exercised against it in a test.
+  A smaller fixture closes the item without making the measure takeable, which
+  is the failure this condition exists to prevent.
 - **Size:** medium.
 
 ### R15. Decide what G7 measures (ADR before code)
