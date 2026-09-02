@@ -185,7 +185,11 @@ export async function handleAdminRoutes(context) {
     assertAdmin(operator, requireAdminMfa); const body = await webBody(req); assertCsrf(operator, body);
     const id = Number(match[1]); const status = String(body.status);
     if (!["active", "suspended"].includes(status)) throw Object.assign(new Error("Invalid agent status"), { status: 400 });
-    const result = await db.query(`UPDATE agents a SET status = $1, approved_by = CASE WHEN $1 = 'active' THEN $2 ELSE approved_by END, approved_at = CASE WHEN $1 = 'active' THEN NOW() ELSE approved_at END FROM operators o WHERE a.id = $3 AND o.id = a.operator_id AND o.status = 'active'`, [status, operator.id, id]);
+    // Written as a subquery rather than UPDATE ... FROM because the test double
+    // cannot execute the join form, and an approval no test can execute is the
+    // one human decision behind C10 going unchecked. Same semantics: an agent
+    // whose operator is not active is not approvable.
+    const result = await db.query(`UPDATE agents SET status = $1, approved_by = CASE WHEN $1 = 'active' THEN $2 ELSE approved_by END, approved_at = CASE WHEN $1 = 'active' THEN NOW() ELSE approved_at END WHERE id = $3 AND operator_id IN (SELECT id FROM operators WHERE status = 'active')`, [status, operator.id, id]);
     if (!result.rowCount) throw Object.assign(new Error("Agent or active operator not found"), { status: 404 });
     await audit(db, operator.id, status === "active" ? "approve-or-reactivate" : "suspend", "agent", id);
     redirect(res, "/admin");

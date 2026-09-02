@@ -19,7 +19,8 @@
     "agent:example:python": "python3 scripts/agent-client.py",
     "agent:example:shell": "sh scripts/agent-client.sh",
     "load:smoke": "node scripts/load-smoke.js",
-    "seed:triage": "node scripts/seed-triage-fixture.js"
+    "seed:triage": "node scripts/seed-triage-fixture.js",
+    "cohort:local": "node scripts/local-cohort.js"
   },
   "dependencies": {
     "@a2a-js/sdk": "^1.1.0",

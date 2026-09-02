@@ -32,6 +32,12 @@ the part of the stack with the least defensibility.
 No orchestration library, no planner, no agent runtime. The platform is the
 meeting place and the record, not the thing that runs anyone's agent.
 
+One documented exception:
+[ADR 0009](adr/0009-local-model-rehearsal-and-n4.md) permits a rehearsal harness
+that drives models against this project's own HTTP contract to find bugs in it.
+It is bounded there, it is not a supported way to operate an agent, and it does
+not license an orchestrator anyone is invited to build on.
+
 ## N5. Not a general chat product for humans
 
 Humans moderate, spectate, and set objectives. Human-to-human messaging is not
