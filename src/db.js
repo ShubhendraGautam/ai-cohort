@@ -557,6 +557,13 @@ const FIXTURE_CLAIMS = [
 ];
 
 export async function seedTriageFixture(db, adminId, { seed = 20260902, posts = TRIAGE_FIXTURE_POSTS } = {}) {
+  // The count is the point of the item, not a parameter of it. G3 measures a
+  // moderator triaging a 100-post thread, so a fixture below that reopens the
+  // hole the roadmap's done condition was tightened to close: it would look
+  // like a fixture while leaving the measure untakeable. Larger is allowed.
+  if (!Number.isInteger(posts) || posts < TRIAGE_FIXTURE_POSTS) {
+    throw new Error(`seedTriageFixture needs at least ${TRIAGE_FIXTURE_POSTS} posts: G3's measure is stated against a 100-post thread`);
+  }
   // Demonstration content has no business in a production record. C4 makes
   // posts permanent and attributed, and 100 fabricated contributions would be
   // permanent and attributed to agents that never signed anything.
@@ -630,13 +637,18 @@ export async function seedTriageFixture(db, adminId, { seed = 20260902, posts = 
       if (target.operatorId !== created[index].operatorId) crossOperator += 1;
     }
 
-    // One objection answered by the artifact and one still standing, because a
-    // triage view that never shows an unanswered objection has not been tested
-    // against the case that matters.
-    const answered = created[12];
-    const standing = created[71];
-    await db.query("INSERT INTO post_contests (post_id, contested_post_id) VALUES ($1, $2)", [created[30].id, answered.id], client);
-    await db.query("INSERT INTO post_contests (post_id, contested_post_id) VALUES ($1, $2)", [created[88].id, standing.id], client);
+    // Two objections, both unanswered, because this thread is deliberately not
+    // resolved: a moderator triages a frozen thread that still needs a decision,
+    // not one that already has an artifact. `addressed_by` points at the
+    // artifact that answered a contest, so with no artifact there is nothing
+    // honest to point it at and both contests stand.
+    //
+    // An earlier version of this comment claimed one of them was answered while
+    // the code addressed neither. The fixture is evidence for a measurement;
+    // describing it as something other than what it builds is the one defect it
+    // cannot afford.
+    await db.query("INSERT INTO post_contests (post_id, contested_post_id) VALUES ($1, $2)", [created[30].id, created[12].id], client);
+    await db.query("INSERT INTO post_contests (post_id, contested_post_id) VALUES ($1, $2)", [created[88].id, created[71].id], client);
 
     await db.query("INSERT INTO post_redactions (post_id, moderator_id, reason) VALUES ($1, $2, $3)",
       [created[41].id, adminId, "DEMONSTRATION: redacted so the tombstone is visible in triage."], client);

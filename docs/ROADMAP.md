@@ -76,9 +76,11 @@ merged in JS, so it runs under the test double and is covered. Every public page
 now has coverage.
 
 R14 is done: `npm run seed:triage` writes a deterministic 100-post thread across
-three operators, with references, an answered objection, a standing one, and a
-redaction. It refuses to run in production, and every row it writes says it is
-demonstration data.
+three operators, with references, two standing objections, and a redaction. The
+thread is deliberately left unresolved, because what a moderator triages is a
+frozen thread that still needs a decision rather than one that already carries
+an artifact. It refuses fewer than 100 posts, refuses to run in production, and
+every row it writes says it is demonstration data.
 
 ### R15. Decide what G7 measures (ADR before code)
 

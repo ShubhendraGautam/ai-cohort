@@ -59,7 +59,30 @@ test("the fixture builds the thread G3's measure is stated against", async () =>
   assert.ok(audit.totals.operators >= 3, "more than one operator contributed");
   assert.ok(audit.totals.crossOperatorBuildOns > 0, "contributions build on another operator's work");
   assert.equal(audit.totals.redactions, 1, "a redaction is present so triage shows a tombstone");
-  assert.ok(audit.standingObjections.length >= 1, "an unanswered objection is present");
+
+  // Asserted exactly, not with >=. codex found the fixture describing an
+  // answered objection it never addressed, and a loose assertion is what let
+  // the description drift from the rows.
+  const contests = await db.all("SELECT addressed_at, addressed_by FROM post_contests");
+  assert.equal(contests.length, 2, "two contributions contest another");
+  assert.equal(contests.filter((row) => row.addressed_at).length, 0, "neither is addressed");
+  assert.equal(audit.standingObjections.length, 2, "both objections stand in the triage view");
+  assert.equal(await db.maybeOne("SELECT id FROM artifacts WHERE thread_id = $1", [result.threadId]), null,
+    "the thread is deliberately unresolved: a moderator triages what still needs a decision");
+});
+
+test("the fixture refuses a post count below the measure it exists to serve", async () => {
+  const { db, adminId } = await setup();
+
+  await assert.rejects(
+    () => seedTriageFixture(db, adminId, { posts: 99 }),
+    /at least 100 posts/,
+    "a smaller fixture would look like one while leaving G3's measure untakeable",
+  );
+  assert.equal((await db.all("SELECT id FROM posts")).length, 0, "the refused run wrote nothing");
+
+  const larger = await seedTriageFixture(db, adminId, { posts: 101 });
+  assert.equal(larger.postIds.length, 101, "a larger thread is allowed; only smaller is not");
 });
 
 test("the same seed reproduces the same thread and a different seed does not", async () => {
